@@ -42,4 +42,16 @@ export const VIDEO_RESOLUTIONS = [
 export const VIDEO_FRAME_RATES = [15, 30, 60];
 export const HIGH_FPS = 60;
 export const HIGH_FPS_BITRATE_FACTOR = 1.5; // 60 FPS gasta mais banda para a mesma nitidez
-export const DEFAULT_VIDEO_QUALITY = { resolution: '720', fps: 30 };
+// Padrão por tipo. Tela: texto parado não precisa de 30 FPS; 15 FPS em 1080p mantém o texto nítido
+// gastando menos CPU e banda. Câmera: movimento, então 30 FPS.
+export const DEFAULT_VIDEO_QUALITY = {
+  camera: { resolution: '720', fps: 30 },
+  screen: { resolution: '1080', fps: 15 },
+};
+
+// Teto de upload de vídeo de quem transmite, dividido entre quem está assistindo
+// (bitrate por pessoa = min(bitrate da qualidade, teto ÷ pessoas assistindo)). 0 = sem limite.
+export const UPLOAD_BUDGETS = [5_000_000, 10_000_000, 20_000_000, 0];
+export const DEFAULT_UPLOAD_BUDGET = 10_000_000;
+// Abaixo disso o vídeo fica inútil: preferimos passar um pouco do teto.
+export const MIN_VIEWER_BITRATE = 300_000;

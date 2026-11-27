@@ -85,15 +85,15 @@ public sealed class VoiceHubTests(WebApplicationFactory<Program> factory)
     }
 
     [Fact]
-    public async Task Room_is_limited_to_six_participants()
+    public async Task Room_is_limited_to_eight_participants()
     {
-        for (var i = 0; i < 6; i++)
+        for (var i = 0; i < 8; i++)
         {
             await (await ConnectAsync()).JoinAsync(_room, $"P{i}");
         }
 
-        var seventh = await ConnectAsync();
-        var ex = await Assert.ThrowsAsync<HubException>(() => seventh.JoinAsync(_room, "P7"));
+        var ninth = await ConnectAsync();
+        var ex = await Assert.ThrowsAsync<HubException>(() => ninth.JoinAsync(_room, "P9"));
 
         Assert.Contains("cheia", ex.Message);
     }
@@ -228,6 +228,42 @@ public sealed class VoiceHubTests(WebApplicationFactory<Program> factory)
         Assert.Null((await dani.JoinWithStreamAsync(_room, "Dani")).Streamer);
     }
 
+    [Fact]
+    public async Task WatchStream_is_relayed_only_to_the_streamer_of_the_same_room()
+    {
+        var ana = await ConnectAsync();
+        var bia = await ConnectAsync();
+        var caio = await ConnectAsync();
+        var outsider = await ConnectAsync();
+        await ana.JoinAsync(_room, "Ana");
+        await bia.JoinAsync(_room, "Bia");
+        await caio.JoinAsync(_room, "Caio");
+        await outsider.JoinAsync(_room + "-x", "Outro");
+
+        await ana.Connection.InvokeAsync("StartStream");
+        await bia.Connection.InvokeAsync("WatchStream", true);
+        Assert.Equal([bia.Id, true], await ana.NextAsync("ViewerChanged"));
+
+        // Sem efeito: outra sala (sem transmissão lá) e o próprio transmissor.
+        await outsider.Connection.InvokeAsync("WatchStream", true);
+        await ana.Connection.InvokeAsync("WatchStream", true);
+
+        // O próximo aviso que a Ana recebe é o do Caio: os dois acima não chegaram.
+        await caio.Connection.InvokeAsync("WatchStream", false);
+        Assert.Equal([caio.Id, false], await ana.NextAsync("ViewerChanged"));
+    }
+
+    [Fact]
+    public async Task WatchStream_without_stream_is_ignored_and_without_room_is_rejected()
+    {
+        var ana = await ConnectAsync();
+        await ana.JoinAsync(_room, "Ana");
+        await ana.Connection.InvokeAsync("WatchStream", true); // ninguém transmite: não faz nada
+
+        var lone = await ConnectAsync();
+        await Assert.ThrowsAsync<HubException>(() => lone.Connection.InvokeAsync("WatchStream", true));
+    }
+
     // ---- infraestrutura --------------------------------------------------
 
     private async Task<TestClient> ConnectAsync()
@@ -267,6 +303,7 @@ public sealed class VoiceHubTests(WebApplicationFactory<Program> factory)
             Listen("UserMuted", typeof(string), typeof(bool));
             Listen("StreamStarted", typeof(string), typeof(string));
             Listen("StreamStopped", typeof(string));
+            Listen("ViewerChanged", typeof(string), typeof(bool));
             Listen("ReceiveOffer", typeof(string), typeof(SessionDescriptionDto));
             Listen("ReceiveAnswer", typeof(string), typeof(SessionDescriptionDto));
             Listen("ReceiveIceCandidate", typeof(string), typeof(IceCandidateDto));

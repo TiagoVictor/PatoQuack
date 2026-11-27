@@ -450,6 +450,21 @@ label { display: grid; gap: 6px; font-size: .85rem; color: var(--muted); font-we
 .tile-conn[data-state="failed"] { color: var(--danger); }
 
 .stream-tile { --tile-bg: #000; }
+/* Transmissão que você ainda não está assistindo: nada é recebido até clicar. */
+.tile-idle {
+  position: absolute; inset: 0; display: none; place-items: center; align-content: center; gap: 8px;
+  color: var(--text-2); font-weight: 600; font-size: clamp(.75rem, 3.2cqw, 1rem); text-align: center;
+  background: radial-gradient(circle at center, #2b2d31 0%, #111214 75%);
+}
+.tile-idle .icon { width: clamp(24px, 9cqw, 44px); height: clamp(24px, 9cqw, 44px); color: var(--muted); }
+.stream-tile.idle .tile-idle { display: grid; }
+.stream-tile.idle video { visibility: hidden; }
+
+.header-btn {
+  flex: none; padding: 6px 12px; border-radius: 6px; font-size: .8rem;
+  background: var(--card-2); color: var(--text-2);
+}
+.header-btn:hover { background: var(--danger); color: #fff; filter: none; }
 .stream-tile video {
   position: absolute; inset: 0; width: 100%; height: 100%;
   object-fit: contain; display: block; background: #000;
@@ -460,7 +475,8 @@ label { display: grid; gap: 6px; font-size: .85rem; color: var(--muted); font-we
 
 /* No topo do palco: embaixo ficam a faixa de miniaturas (modo ampliado) e o Log. */
 .toast {
-  position: absolute; left: 50%; top: 64px; transform: translateX(-50%); z-index: 1;
+  /* Acima do painel de estatísticas: o aviso é curto e precisa ser lido. */
+  position: absolute; left: 50%; top: 64px; transform: translateX(-50%); z-index: 6;
   max-width: calc(100% - 32px); width: max-content;
   padding: 8px 14px; border-radius: 8px;
   background: var(--card); border: 1px solid var(--line);
@@ -482,6 +498,24 @@ label { display: grid; gap: 6px; font-size: .85rem; color: var(--muted); font-we
 
 /* Qualidade (resolução + FPS) nos menus da câmera e da tela. */
 .quality-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; }
+
+/* ---- estatísticas da transmissão ---------------------------------------------- */
+
+.stats-panel {
+  position: absolute; top: 64px; right: 16px; z-index: 5;
+  width: min(420px, calc(100% - 32px)); max-height: calc(100% - 160px); overflow-y: auto;
+  padding: 12px 14px; border-radius: 10px;
+  background: rgb(17 18 20 / .92); border: 1px solid #2e3035; color: var(--text);
+  box-shadow: 0 12px 32px rgb(0 0 0 / .55);
+  font-size: .8rem;
+}
+.stats-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.stats-head h2 { margin: 0; font-size: .9rem; }
+.stats-summary { margin: 8px 0; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.stats-peers { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.stats-peer { display: grid; gap: 2px; padding-top: 8px; border-top: 1px solid #2e3035; }
+.stats-peer span { color: var(--muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.stats-empty { color: var(--muted); }
 
 /* ---- prévia antes de transmitir (dialog) ------------------------------------ */
 

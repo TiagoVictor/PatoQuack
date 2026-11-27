@@ -13,6 +13,8 @@ public interface IVoiceClient
 
     Task StreamStarted(string connectionId, string name);
     Task StreamStopped(string connectionId);
+    /// <summary>Só para quem transmite: alguém começou (true) ou parou (false) de assistir.</summary>
+    Task ViewerChanged(string viewerConnectionId, bool watching);
 
     Task ReceiveOffer(string fromConnectionId, SessionDescriptionDto offer);
     Task ReceiveAnswer(string fromConnectionId, SessionDescriptionDto answer);
@@ -38,6 +40,9 @@ public sealed class VoiceOptions
 {
     public const string SectionName = "Voice";
 
-    /// <summary>Limite de participantes por sala. Em malha P2P, 6 já é o teto prático.</summary>
-    public int MaxParticipantsPerRoom { get; set; } = 6;
+    /// <summary>
+    /// Limite de participantes por sala. Em malha P2P cada pessoa envia o áudio para todas as
+    /// outras; 8 ainda é viável porque o vídeo só vai para quem assiste (WatchStream).
+    /// </summary>
+    public int MaxParticipantsPerRoom { get; set; } = 8;
 }

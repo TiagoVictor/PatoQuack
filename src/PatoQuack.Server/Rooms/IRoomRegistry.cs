@@ -34,6 +34,9 @@ public interface IRoomRegistry
     /// ou null caso contrário (não transmitia, ou não está em sala).
     /// </summary>
     Task<Participant?> StopStreamAsync(string connectionId);
+
+    /// <summary>Quem transmite vídeo na sala, ou null se ninguém (ou a sala não existe).</summary>
+    Task<Participant?> GetStreamerAsync(string room);
 }
 
 public enum StreamStartStatus

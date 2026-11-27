@@ -38,6 +38,7 @@ export class VoiceSignaling {
     this.connection.on('UserMuted', handlers.userMuted);
     this.connection.on('StreamStarted', handlers.streamStarted);
     this.connection.on('StreamStopped', handlers.streamStopped);
+    this.connection.on('ViewerChanged', handlers.viewerChanged);
     this.connection.on('ReceiveOffer', handlers.receiveOffer);
     this.connection.on('ReceiveAnswer', handlers.receiveAnswer);
     this.connection.on('ReceiveIceCandidate', handlers.receiveIceCandidate);
@@ -61,6 +62,8 @@ export class VoiceSignaling {
   setMuted(muted) { return this.connection.invoke('SetMuted', muted); }
   startStream() { return this.connection.invoke('StartStream'); }
   stopStream() { return this.connection.invoke('StopStream'); }
+  /** Avisa quem transmite que começamos (true) ou paramos (false) de assistir. */
+  watchStream(watching) { return this.connection.invoke('WatchStream', watching); }
 
   sendOffer(targetId, offer) { return this.connection.invoke('SendOffer', targetId, toDescription(offer)); }
   sendAnswer(targetId, answer) { return this.connection.invoke('SendAnswer', targetId, toDescription(answer)); }

@@ -2,7 +2,8 @@
 // preferência salva por tipo (câmera / tela).
 
 import {
-  DEFAULT_VIDEO_QUALITY, HIGH_FPS, HIGH_FPS_BITRATE_FACTOR, VIDEO_FRAME_RATES, VIDEO_RESOLUTIONS,
+  DEFAULT_UPLOAD_BUDGET, DEFAULT_VIDEO_QUALITY, HIGH_FPS, HIGH_FPS_BITRATE_FACTOR, MIN_VIEWER_BITRATE,
+  UPLOAD_BUDGETS, VIDEO_FRAME_RATES, VIDEO_RESOLUTIONS,
 } from './config.js';
 
 /** @typedef {{ resolution: string, fps: number }} VideoQuality */
@@ -17,8 +18,9 @@ export function resolutionsFor(kind) {
 
 /** Garante uma qualidade válida para o tipo (ex.: preferência antiga ou "Original" na câmera). */
 export function normalizeQuality(kind, q) {
-  const resolution = resolutionsFor(kind).some((r) => r.id === q?.resolution) ? q.resolution : DEFAULT_VIDEO_QUALITY.resolution;
-  const fps = VIDEO_FRAME_RATES.includes(Number(q?.fps)) ? Number(q.fps) : DEFAULT_VIDEO_QUALITY.fps;
+  const fallback = DEFAULT_VIDEO_QUALITY[kind];
+  const resolution = resolutionsFor(kind).some((r) => r.id === q?.resolution) ? q.resolution : fallback.resolution;
+  const fps = VIDEO_FRAME_RATES.includes(Number(q?.fps)) ? Number(q.fps) : fallback.fps;
   return { resolution, fps };
 }
 
@@ -28,7 +30,7 @@ export function loadQuality(kind) {
     const [resolution, fps] = (localStorage.getItem(storageKey(kind)) ?? '').split('@');
     return normalizeQuality(kind, { resolution, fps });
   } catch {
-    return { ...DEFAULT_VIDEO_QUALITY };
+    return { ...DEFAULT_VIDEO_QUALITY[kind] };
   }
 }
 
@@ -72,10 +74,81 @@ const mbps = (bps) => (bps / 1_000_000).toLocaleString('pt-BR', { maximumFractio
 /** Ex.: "1080p 60 FPS". */
 export const qualityLabel = (q) => `${resolutionOf(q).label} ${q.fps} FPS`;
 
-/** Texto da estimativa de upload: bitrate × pessoas que recebem (todos na sala, menos você). */
-export function uploadEstimate(q, viewers) {
-  const per = bitrateFor(q);
-  if (viewers <= 0) return `≈ ${mbps(per)} Mbps de upload para cada pessoa que entrar`;
-  const who = viewers === 1 ? '1 pessoa' : `${viewers} pessoas`;
-  return `≈ ${mbps(per * viewers)} Mbps de upload (${mbps(per)} Mbps × ${who})`;
+// ---- teto de upload (dividido entre quem assiste) ------------------------------
+
+export function loadUploadBudget() {
+  try {
+    const value = Number(localStorage.getItem('voz.uploadBudget'));
+    return localStorage.getItem('voz.uploadBudget') !== null && UPLOAD_BUDGETS.includes(value) ? value : DEFAULT_UPLOAD_BUDGET;
+  } catch {
+    return DEFAULT_UPLOAD_BUDGET;
+  }
+}
+
+export function saveUploadBudget(bps) {
+  try { localStorage.setItem('voz.uploadBudget', String(bps)); } catch { /* storage indisponível */ }
+}
+
+export const budgetLabel = (bps) => (bps ? `${mbps(bps)} Mbps` : 'Sem limite');
+
+export function fillBudgetSelect(select, budget) {
+  select.replaceChildren(...UPLOAD_BUDGETS.map((b) => new Option(budgetLabel(b), String(b), false, b === budget)));
+}
+
+/** Limite por pessoa: o da qualidade, reduzido para caber no teto dividido entre quem assiste. */
+export function perViewerBitrate(q, viewers, budget) {
+  const base = bitrateFor(q);
+  if (!budget || viewers <= 0) return base;
+  return Math.max(MIN_VIEWER_BITRATE, Math.min(base, Math.floor(budget / viewers)));
+}
+
+/** Texto da estimativa de upload: bitrate por pessoa × quem está assistindo, dentro do teto. */
+export function uploadEstimate(q, viewers, budget) {
+  if (viewers <= 0) {
+    const cap = budget ? ` · no máximo ${mbps(budget)} Mbps no total` : '';
+    return `≈ ${mbps(bitrateFor(q))} Mbps por pessoa que assistir${cap}`;
+  }
+  const per = perViewerBitrate(q, viewers, budget);
+  const who = viewers === 1 ? '1 pessoa assistindo' : `${viewers} pessoas assistindo`;
+  const reduced = per < bitrateFor(q) ? ' · reduzido pelo upload máximo' : '';
+  return `≈ ${mbps(per * viewers)} Mbps de upload (${mbps(per)} Mbps × ${who})${reduced}`;
+}
+
+// ---- codec de vídeo ------------------------------------------------------------
+//
+// Cada conexão codifica o vídeo separadamente: com várias pessoas assistindo, um codificador por
+// hardware poupa muita CPU de quem transmite (medido no Mac, 4 pessoas assistindo 720p: H.264 por
+// hardware ~45% de um núcleo contra ~95% do VP8). Preferimos H.264 quando o navegador informa que
+// ele é eficiente (powerEfficient) OU no macOS: todo Mac tem codificador H.264 por hardware
+// (VideoToolbox), mas o Chrome do Mac informa powerEfficient = false mesmo usando-o.
+// Se o outro lado não aceitar H.264, a negociação cai para o próximo codec da lista.
+// Diagnóstico/comparação: localStorage 'voz.codec' = 'video/H264' ou 'video/VP8' força o codec
+// (recarregar a página); remover a chave volta ao automático.
+
+const FORCEABLE_CODECS = ['video/H264', 'video/VP8', 'video/VP9', 'video/AV1'];
+
+/** @returns {Promise<{ mimeType: string | null, reason: string }>} */
+export async function pickVideoCodec() {
+  if (!('setCodecPreferences' in (globalThis.RTCRtpTransceiver?.prototype ?? {}))) {
+    return { mimeType: null, reason: 'padrão do navegador (sem setCodecPreferences)' };
+  }
+  let forced = null;
+  try { forced = localStorage.getItem('voz.codec'); } catch { /* storage indisponível */ }
+  if (FORCEABLE_CODECS.includes(forced)) return { mimeType: forced, reason: `forçado: ${forced.replace('video/', '')}` };
+  try {
+    const info = await navigator.mediaCapabilities.encodingInfo({
+      type: 'webrtc',
+      video: { contentType: 'video/H264', width: 1280, height: 720, bitrate: 2_500_000, framerate: 30 },
+    });
+    if (info.supported && info.powerEfficient) return { mimeType: 'video/H264', reason: 'H264 por hardware' };
+  } catch { /* sem mediaCapabilities para webrtc */ }
+  const h264 = globalThis.RTCRtpSender?.getCapabilities?.('video')?.codecs.some((c) => c.mimeType.toLowerCase() === 'video/h264');
+  if (h264 && isMac()) return { mimeType: 'video/H264', reason: 'H264 (Mac: codificador por hardware)' };
+  return { mimeType: null, reason: 'padrão do navegador (sem H264 por hardware)' };
+}
+
+/** macOS (Chromium informa userAgentData; Safari/Firefox, só o userAgent). iPad também se diz Mac. */
+function isMac() {
+  const platform = navigator.userAgentData?.platform;
+  return platform ? platform === 'macOS' : /Macintosh|Mac OS X/.test(navigator.userAgent);
 }

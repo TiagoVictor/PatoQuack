@@ -5,7 +5,7 @@
 //
 // Usa <dialog> nativo com showModal (Safari 15.4+): o resto da página fica inerte enquanto aberto.
 
-import { constraintsFor, fillQualitySelects, qualityFromSelects } from './quality.js';
+import { constraintsFor, fillBudgetSelect, fillQualitySelects, qualityFromSelects } from './quality.js';
 
 const TEXTS = {
   camera: { title: 'Vamos ligar a câmera?', confirm: 'Ativar câmera' },
@@ -23,6 +23,8 @@ const TEXTS = {
  *   estimate: (quality: { resolution: string, fps: number }) => string,
  *   onQualityChange: (quality: { resolution: string, fps: number }) => void,
  *   onAlwaysChange: (always: boolean) => void,
+ *   budget: number,
+ *   onBudgetChange: (bps: number) => void,
  *   onCameraChange?: (deviceId: string) => void,
  *   onError: (message: string) => void,
  * }} PreviewOptions
@@ -37,7 +39,7 @@ export class VideoPreview {
     this.busy = false;
     this.blocked = null;
 
-    const { dialog, close, confirm, cameraSelect, resolution, fps, rechoose, always } = els;
+    const { dialog, close, confirm, cameraSelect, resolution, fps, rechoose, always, budget } = els;
     close.addEventListener('click', () => this.cancel());
     confirm.addEventListener('click', () => this.#confirm());
     // Esc: o navegador fecha sozinho; tratamos como cancelar (e encerramos a captura).
@@ -52,6 +54,11 @@ export class VideoPreview {
     fps.addEventListener('change', () => this.#changeQuality());
     rechoose.addEventListener('click', () => this.#rechoose());
     always.addEventListener('change', () => this.ctx?.onAlwaysChange(always.checked));
+    budget.addEventListener('change', () => {
+      if (!this.ctx) return;
+      this.ctx.onBudgetChange(Number(budget.value));
+      this.refresh();
+    });
   }
 
   get isOpen() { return this.ctx !== null; }
@@ -72,6 +79,7 @@ export class VideoPreview {
       els.rechoose.hidden = kind !== 'screen';
       els.always.checked = options.alwaysPreview;
       fillQualitySelects(els.resolution, els.fps, kind, options.quality);
+      fillBudgetSelect(els.budget, options.budget);
       this.#show(options.media);
       if (kind === 'camera') options.fillCameras?.(els.cameraSelect, options.media);
       this.refresh();

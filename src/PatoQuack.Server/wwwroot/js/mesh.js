@@ -21,18 +21,27 @@ export class MeshVoiceSession {
    *   onRemoteStream?: (id: string, stream: MediaStream) => void,
    *   onRemoteVideo?: (id: string, track: MediaStreamTrack) => void,
    *   videoMaxBitrate?: number,
+   *   preferredVideoCodec?: string | null,
    *   onPeerFailed?: (id: string) => void,
    *   onError?: (id: string, error: unknown) => void,
    * }} options
    */
-  constructor({ signaling, localStream, iceServers, onPeerState, onRemoteStream, onRemoteVideo, onPeerFailed, onError, videoMaxBitrate }) {
+  constructor({ signaling, localStream, iceServers, onPeerState, onRemoteStream, onRemoteVideo, onPeerFailed, onError, videoMaxBitrate, preferredVideoCodec }) {
     this.signaling = signaling;
     this.localStream = localStream;
     this.iceServers = iceServers;
     this.videoMaxBitrate = videoMaxBitrate ?? 0;
+    /** Codec de vídeo a pôr em primeiro na negociação (ex.: 'video/H264'), ou null = padrão. */
+    this.preferredVideoCodec = preferredVideoCodec ?? null;
 
     /** Track de vídeo que estamos transmitindo (ou null). @type {MediaStreamTrack | null} */
     this.videoTrack = null;
+    /**
+     * Quem está assistindo nossa transmissão: só essas conexões recebem (e codificam) vídeo.
+     * Fica fora dos peers porque o aviso pode chegar antes de a conexão existir.
+     * @type {Set<string>}
+     */
+    this.videoViewers = new Set();
     this.events = {
       onPeerState: onPeerState ?? (() => {}),
       onRemoteStream: onRemoteStream ?? (() => {}),
@@ -127,6 +136,25 @@ export class MeshVoiceSession {
   }
 
   /**
+   * Liga/desliga o envio de vídeo para uma pessoa (ela começou/parou de assistir), sem
+   * renegociar: desligado = replaceTrack(null), nada é codificado nem enviado para ela.
+   * @param {string} id
+   * @param {boolean} enabled
+   */
+  async setPeerVideoEnabled(id, enabled) {
+    if (enabled) this.videoViewers.add(id);
+    else this.videoViewers.delete(id);
+    const peer = this.peers.get(id);
+    if (peer) await this.#guard(id, () => this.#applyVideo(peer));
+  }
+
+  /** Esquece quem assistia (nova transmissão: cada pessoa escolhe assistir de novo). */
+  async clearVideoViewers() {
+    this.videoViewers.clear();
+    await Promise.all([...this.peers.values()].map((peer) => this.#guard(peer.id, () => this.#applyVideo(peer))));
+  }
+
+  /**
    * Muda o limite de envio de vídeo (bps) em todas as conexões, sem renegociar.
    * Conexões criadas depois usam o novo valor.
    * @param {number} bps
@@ -134,6 +162,51 @@ export class MeshVoiceSession {
   async setVideoMaxBitrate(bps) {
     this.videoMaxBitrate = bps;
     await Promise.all([...this.peers.values()].map((peer) => this.#guard(peer.id, () => this.#applyVideo(peer))));
+  }
+
+  /**
+   * Amostra de estatísticas de cada conexão (contadores acumulados; quem chama calcula taxas a
+   * partir de duas amostras). Campos ausentes no navegador ficam undefined.
+   * @returns {Promise<PeerStats[]>}
+   */
+  async collectStats() {
+    const peers = [...this.peers.values()].filter((p) => p.pc.connectionState !== 'closed');
+    return Promise.all(peers.map(async (peer) => {
+      const sample = { id: peer.id, timestamp: performance.now(), out: null, in: null, bytesSent: 0, bytesReceived: 0 };
+      let report;
+      try {
+        report = await peer.pc.getStats();
+      } catch {
+        return sample;
+      }
+      const codecOf = (s) => report.get(s.codecId)?.mimeType?.replace(/^video\//, '');
+      for (const s of report.values()) {
+        if (s.type === 'transport') {
+          sample.bytesSent += s.bytesSent ?? 0;
+          sample.bytesReceived += s.bytesReceived ?? 0;
+        } else if (s.type === 'outbound-rtp' && s.kind === 'video') {
+          sample.out = {
+            bytes: s.bytesSent ?? 0,
+            frames: s.framesEncoded ?? 0,
+            width: s.frameWidth, height: s.frameHeight, fps: s.framesPerSecond,
+            limitation: s.qualityLimitationReason,
+            encoder: s.encoderImplementation,
+            codec: codecOf(s),
+          };
+        } else if (s.type === 'inbound-rtp' && s.kind === 'video') {
+          sample.in = {
+            bytes: s.bytesReceived ?? 0,
+            frames: s.framesDecoded ?? 0,
+            width: s.frameWidth, height: s.frameHeight, fps: s.framesPerSecond,
+            dropped: s.framesDropped ?? 0,
+            decodeTime: s.totalDecodeTime ?? 0,
+            decoder: s.decoderImplementation,
+            codec: codecOf(s),
+          };
+        }
+      }
+      return sample;
+    }));
   }
 
   /**
@@ -249,7 +322,9 @@ export class MeshVoiceSession {
 
     if (peer.initiator) {
       // Vem depois do áudio: a offer fica com m-line de áudio e depois a de vídeo.
-      peer.videoSender = peer.pc.addTransceiver('video', { direction: 'sendrecv' }).sender;
+      const transceiver = peer.pc.addTransceiver('video', { direction: 'sendrecv' });
+      this.#preferCodec(transceiver);
+      peer.videoSender = transceiver.sender;
     } else {
       // Quem responde reaproveita o transceiver que a offer criou. Ele nasce 'recvonly';
       // passamos para 'sendrecv' antes do createAnswer para também poder transmitir.
@@ -257,6 +332,7 @@ export class MeshVoiceSession {
         .find((t) => t.receiver.track?.kind === 'video' && !t.stopped);
       if (transceiver) {
         transceiver.direction = 'sendrecv';
+        this.#preferCodec(transceiver);
         peer.videoSender = transceiver.sender;
       } else {
         console.warn(`[mesh] offer de ${peer.id} sem vídeo; transmissão indisponível com esse peer`);
@@ -273,19 +349,52 @@ export class MeshVoiceSession {
     const sender = peer.videoSender;
     if (!sender || peer.pc.connectionState === 'closed') return;
 
-    if (sender.track !== this.videoTrack) {
-      await sender.replaceTrack(this.videoTrack);
+    // Só quem está assistindo recebe o vídeo; para os demais o sender fica vazio.
+    const track = this.videoViewers.has(peer.id) ? this.videoTrack : null;
+    if (sender.track !== track) {
+      await sender.replaceTrack(track);
     }
 
-    if (!this.videoTrack || !this.videoMaxBitrate) return;
+    if (!track) return;
+    // Sem banda/CPU suficiente, o que sacrificar: tela (texto) mantém a resolução e cai o FPS;
+    // câmera (movimento) mantém o FPS e cai a resolução.
+    const preference = track.contentHint === 'detail' || track.contentHint === 'text'
+      ? 'maintain-resolution' : 'maintain-framerate';
+    const bitrate = this.videoMaxBitrate;
     try {
       const params = sender.getParameters();
       // Antes da negociação terminar os encodings podem estar vazios; tentamos de novo depois.
-      if (!params.encodings?.length || params.encodings[0].maxBitrate === this.videoMaxBitrate) return;
-      params.encodings[0].maxBitrate = this.videoMaxBitrate;
-      await sender.setParameters(params);
+      if (!params.encodings?.length) return;
+      const bitrateOk = !bitrate || params.encodings[0].maxBitrate === bitrate;
+      if (bitrateOk && params.degradationPreference === preference) return;
+      if (bitrate) params.encodings[0].maxBitrate = bitrate;
+      params.degradationPreference = preference;
+      try {
+        await sender.setParameters(params);
+      } catch {
+        // Navegador sem degradationPreference: aplica só o limite de bitrate.
+        if (!bitrate) return;
+        const retry = sender.getParameters();
+        if (!retry.encodings?.length) return;
+        retry.encodings[0].maxBitrate = bitrate;
+        await sender.setParameters(retry);
+      }
     } catch (err) {
-      console.warn(`[mesh] não foi possível limitar o bitrate para ${peer.id}`, err);
+      console.warn(`[mesh] não foi possível ajustar o envio de vídeo para ${peer.id}`, err);
+    }
+  }
+
+  /** Põe o codec preferido em primeiro (mantém os demais como alternativa). Antes da offer/answer. */
+  #preferCodec(transceiver) {
+    const mime = this.preferredVideoCodec?.toLowerCase();
+    if (!mime || typeof transceiver.setCodecPreferences !== 'function') return;
+    try {
+      const codecs = RTCRtpReceiver.getCapabilities('video')?.codecs ?? [];
+      const first = codecs.filter((c) => c.mimeType.toLowerCase() === mime);
+      if (!first.length) return;
+      transceiver.setCodecPreferences([...first, ...codecs.filter((c) => c.mimeType.toLowerCase() !== mime)]);
+    } catch (err) {
+      console.warn('[mesh] não foi possível preferir o codec', this.preferredVideoCodec, err);
     }
   }
 
@@ -321,4 +430,17 @@ export class MeshVoiceSession {
  *   iceRestarted: boolean,
  *   pendingCandidates: RTCIceCandidateInit[],
  * }} Peer
+ */
+
+/**
+ * @typedef {{
+ *   id: string,
+ *   timestamp: number,
+ *   bytesSent: number,
+ *   bytesReceived: number,
+ *   out: { bytes: number, frames: number, width?: number, height?: number, fps?: number,
+ *          limitation?: string, encoder?: string, codec?: string } | null,
+ *   in: { bytes: number, frames: number, width?: number, height?: number, fps?: number,
+ *         dropped: number, decodeTime: number, decoder?: string, codec?: string } | null,
+ * }} PeerStats
  */

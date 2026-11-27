@@ -125,6 +125,20 @@ public sealed class InMemoryRoomRegistry : IRoomRegistry
         }
     }
 
+    public Task<Participant?> GetStreamerAsync(string room)
+    {
+        if (!_rooms.TryGetValue(room, out var state))
+        {
+            return Task.FromResult<Participant?>(null);
+        }
+
+        lock (state)
+        {
+            var streamer = state.StreamerConnectionId is { } id && _byConnection.TryGetValue(id, out var p) ? p : null;
+            return Task.FromResult(streamer);
+        }
+    }
+
     public Task<Participant?> StopStreamAsync(string connectionId)
     {
         if (!_byConnection.TryGetValue(connectionId, out var self)

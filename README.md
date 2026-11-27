@@ -44,7 +44,7 @@ dotnet test
 - `Rooms/InMemoryRoomRegistryTests`: capacidade, isolamento entre salas, mute e concorrência
   (200 entradas simultâneas nunca passam do limite).
 - `Voice/VoiceHubTests`: integração com servidor em memória e clientes SignalR reais
-  (repasse de offer/answer/ICE, bloqueio entre salas, limite de 6, validação, saída e desconexão).
+  (repasse de offer/answer/ICE, bloqueio entre salas, limite de 8, validação, assistir sob demanda, saída e desconexão).
 
 O áudio em si (WebRTC) não tem teste automatizado: valide com o roteiro das duas abas acima.
 
@@ -113,7 +113,7 @@ Regras importantes:
   ficam numa fila e são aplicados depois do `setRemoteDescription`.
 - **Sinalização só dentro da sala.** `SendOffer`, `SendAnswer` e `SendIceCandidate` lançam
   `HubException` se o destino não estiver na mesma sala de quem envia.
-- **Entrada atômica.** A checagem do limite de 6 e a inserção acontecem sob um lock por sala. O
+- **Entrada atômica.** A checagem do limite de 8 e a inserção acontecem sob um lock por sala. O
   cliente entra no grupo SignalR *antes* de aparecer no registro, para que duas entradas
   simultâneas não percam o `UserJoined` uma da outra.
 - **Mute** desliga a track local (`track.enabled = false`, sem renegociar) e avisa a sala com
@@ -148,8 +148,17 @@ para os outros.
 ## Limitações conhecidas
 
 - **Malha P2P escala mal.** Cada pessoa envia o próprio áudio para todas as outras: com N
-  participantes, são N−1 uploads por pessoa. Funciona bem até uns **5–6 participantes** (por isso o
-  limite de 6, configurável em `appsettings.json` → `Voice:MaxParticipantsPerRoom`).
+  participantes, são N−1 uploads por pessoa. O vídeo só vai para quem clicou em **Assistir**
+  (`WatchStream`), dentro de um teto de upload que quem transmite escolhe; ainda assim, quem
+  transmite codifica uma cópia por pessoa que assiste. Limite de **8** por sala, configurável em
+  `appsettings.json` → `Voice:MaxParticipantsPerRoom`. O painel **Estatísticas da transmissão**
+  (menu ⋯) mostra o que está limitando a qualidade (CPU ou banda).
+- **Codec de vídeo.** Quem transmite codifica uma cópia por pessoa que assiste, então o app prefere
+  H.264 quando há codificador por hardware: se o navegador informar (`powerEfficient`) ou no macOS
+  (o Chrome do Mac informa errado). Medido num Mac, 4 pessoas assistindo 720p: ~45% de um núcleo
+  com H.264 (VideoToolbox) contra ~95% com VP8. Para comparar, force no console do navegador
+  `localStorage.setItem('voz.codec', 'video/VP8')` (ou `'video/H264'`) e recarregue; remova a
+  chave para voltar ao automático. O painel de estatísticas mostra o codec e o codificador.
 - **Microfone exige HTTPS ou localhost** (`getUserMedia` só existe em contexto seguro).
 - **Sem TURN, a conexão pode falhar** em algumas redes (NAT simétrico, firewall corporativo, 4G/CGNAT).
   Só há STUN (`stun:stun.l.google.com:19302`). Há um placeholder de TURN comentado em

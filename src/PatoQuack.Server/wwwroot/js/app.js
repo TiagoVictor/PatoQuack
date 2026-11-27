@@ -9,11 +9,12 @@ import { closeAllMenus, repositionMenu, setupMenus } from './menus.js';
 import { MeshVoiceSession } from './mesh.js';
 import { VideoPreview } from './preview-dialog.js';
 import {
-  bitrateFor, constraintsFor, fillQualitySelects, loadQuality, normalizeQuality, qualityFromSelects, qualityLabel,
-  saveQuality, uploadEstimate,
+  bitrateFor, constraintsFor, fillBudgetSelect, fillQualitySelects, loadQuality, loadUploadBudget, normalizeQuality,
+  perViewerBitrate, pickVideoCodec, qualityFromSelects, qualityLabel, saveQuality, saveUploadBudget, uploadEstimate,
 } from './quality.js';
 import { VoiceSignaling } from './signaling.js';
 import { SpeakingDetector } from './speaking.js';
+import { createStatsPanel } from './stats.js';
 
 const LOCAL_ID = 'local';
 /** Chave do bloco da transmissão no palco (os demais blocos usam o id do participante). */
@@ -100,6 +101,10 @@ const ui = {
   menuInvite: $('menu-invite'),
   optGrid: $('opt-grid'),
   optNonvideo: $('opt-nonvideo'),
+  optStats: $('opt-stats'),
+  optAutowatch: $('opt-autowatch'),
+  stopWatchingBtn: $('stop-watching-btn'),
+  streamPanelSub: $('stream-panel-sub'),
   menuMic: $('menu-mic'),
   micSelect: $('mic-select'),
   speakerField: $('speaker-field'),
@@ -134,8 +139,8 @@ const canPickSpeaker = 'setSinkId' in HTMLMediaElement.prototype;
 
 // Controles de qualidade dos menus ˅ da câmera e da tela.
 const qualityControls = {
-  camera: { resolution: ui.cameraResolution, fps: ui.cameraFps, estimate: ui.cameraEstimate, preview: ui.optCameraPreview },
-  screen: { resolution: ui.screenResolution, fps: ui.screenFps, estimate: ui.screenEstimate, preview: ui.optScreenPreview },
+  camera: { resolution: ui.cameraResolution, fps: ui.cameraFps, estimate: ui.cameraEstimate, preview: ui.optCameraPreview, budget: $('camera-budget') },
+  screen: { resolution: ui.screenResolution, fps: ui.screenFps, estimate: ui.screenEstimate, preview: ui.optScreenPreview, budget: $('screen-budget') },
 };
 
 // Botões que fazem a mesma coisa na doca (barra lateral) e na barra de controles do palco.
@@ -143,6 +148,8 @@ const muteButtons = [ui.muteBtn, ui.barMic];
 const streamButtons = { camera: [ui.cameraBtn, ui.barCamera], screen: [ui.screenBtn, ui.barScreen] };
 
 const signaling = new VoiceSignaling(HUB_URL);
+/** Codec de vídeo preferido (H.264 se houver codificador por hardware); decidido uma vez. */
+const videoCodecChoice = pickVideoCodec();
 const preview = new VideoPreview({
   dialog: $('preview-dialog'),
   title: $('preview-title'),
@@ -159,6 +166,7 @@ const preview = new VideoPreview({
   always: $('preview-always'),
   confirm: $('preview-confirm'),
   confirmLabel: $('preview-confirm-label'),
+  budget: $('preview-budget'),
 });
 /** Cartão de prévia de quem transmite (criado no fim do módulo, depois do DOM pronto). */
 let hoverCard = null;
@@ -185,8 +193,18 @@ const state = {
   localVideoKind: null,
   /** Pedido de transmissão em andamento (seletor de tela aberto, StartStream pendente). */
   startingStream: false,
+  /** @type {{ mimeType: string | null, reason: string } | null} */
+  videoCodec: null,
+  /** Quem assiste: estou recebendo a transmissão de outra pessoa? (só chega vídeo se sim) */
+  watching: false,
+  /** Quem transmite: connectionIds de quem está assistindo (só eles recebem vídeo). */
+  viewers: new Set(),
+  /** Começar a assistir sozinho quando alguém transmite. */
+  autoWatch: readPref('voz.autoWatch', false),
   /** Qualidade escolhida (resolução + FPS) por tipo de transmissão. */
   quality: { camera: loadQuality('camera'), screen: loadQuality('screen') },
+  /** Teto de upload de vídeo (bps, 0 = sem limite), dividido entre quem assiste. */
+  uploadBudget: loadUploadBudget(),
   /** Mostrar a prévia antes de transmitir, por tipo. */
   alwaysPreview: { camera: readPref('voz.preview.camera', true), screen: readPref('voz.preview.screen', true) },
   /** Track de vídeo recebido de cada peer (vazio até alguém transmitir). @type {Map<string, MediaStreamTrack>} */
@@ -376,8 +394,9 @@ function renderHeader() {
     ui.streamQuality.textContent = '';
   }
 
+  ui.stopWatchingBtn.hidden = !isWatching();
   ui.pipBtn.hidden = !document.pictureInPictureEnabled;
-  ui.pipBtn.disabled = !streamer;
+  ui.pipBtn.disabled = !streamer || (!isLocalStreamer() && !state.watching);
   ui.fullscreenBtn.hidden = !(document.fullscreenEnabled || document.webkitFullscreenEnabled);
 }
 
@@ -386,6 +405,9 @@ function renderHeader() {
 // Mede o vídeo que ESTE navegador está exibindo: para quem assiste, é o que chega pela rede;
 // para quem transmite, é a captura local. Conta quadros com requestVideoFrameCallback; sem
 // suporte a ele, mostra só a resolução.
+
+/** Menor janela para calcular o FPS exibido (abaixo disso, poucos quadros distorcem a conta). */
+const MIN_FPS_WINDOW_MS = 500;
 
 function startQualityMeter(video) {
   const countsFrames = 'requestVideoFrameCallback' in video;
@@ -421,6 +443,9 @@ function startQualityMeter(video) {
       since = now;
       return;
     }
+    // Janela curta demais (ex.: acabou de voltar para a aba): ainda não deu tempo de chegar um
+    // quadro, e a conta daria "0FPS" falso. Espera a próxima medição.
+    if (now - since < MIN_FPS_WINDOW_MS) return;
     const fps = Math.round((frames * 1000) / (now - since));
     frames = 0;
     since = now;
@@ -573,6 +598,8 @@ function renderDock() {
   if (state.localVideoKind) {
     const kind = STREAM_KINDS[state.localVideoKind];
     ui.streamPanelTitle.textContent = kind.title;
+    const n = state.viewers.size;
+    ui.streamPanelSub.textContent = n === 0 ? 'Ninguém assistindo ainda' : n === 1 ? '1 pessoa assistindo' : `${n} pessoas assistindo`;
     ui.streamPanelIcon.setAttribute('href', kind.icon);
   }
 }
@@ -666,6 +693,11 @@ function createTile(key, className) {
   tile.className = `tile ${className}`;
   tile.dataset.key = key;
   tile.addEventListener('click', () => {
+    // Transmissão que ainda não assistimos: o clique começa a assistir (ampliar é o próximo clique).
+    if (key === STREAM_KEY && state.streamer && !isLocalStreamer() && !state.watching) {
+      setWatching(true);
+      return;
+    }
     state.focus = state.focus === key ? null : key;
     renderStage();
   });
@@ -727,7 +759,10 @@ function createStreamTile() {
   const name = document.createElement('span');
   name.className = 'tile-name';
   label.append(name);
-  tile.append(video, live, label);
+  const idle = document.createElement('span');
+  idle.className = 'tile-idle';
+  idle.append(icon('i-screen'), document.createTextNode('Clique para assistir'));
+  tile.append(video, idle, live, label);
   startQualityMeter(video);
   return tile;
 }
@@ -737,9 +772,13 @@ function updateStreamTile(tile) {
   const local = isLocalStreamer();
   const name = local ? 'Você está transmitindo' : streamer.name;
   tile.querySelector('.tile-name').textContent = name;
-  tile.setAttribute('aria-label', local ? 'Sua transmissão, ao vivo' : `Transmissão de ${streamer.name}, ao vivo`);
+  const idle = !local && !state.watching;
+  tile.classList.toggle('idle', idle);
+  tile.setAttribute('aria-label', local ? 'Sua transmissão, ao vivo'
+    : idle ? `Transmissão de ${streamer.name}, ao vivo. Clique para assistir` : `Transmissão de ${streamer.name}, ao vivo`);
+  if (idle) tile.title = 'Assistir transmissão';
 
-  setVideoSource(tile.querySelector('video'), streamSource());
+  setVideoSource(tile.querySelector('video'), idle ? null : streamSource());
 }
 
 /** Vídeo da transmissão atual: quem transmite vê a própria prévia; os demais, o track recebido. */
@@ -774,21 +813,25 @@ function fillStreamCard(id) {
   paintAvatar(ui.streamCardAvatar, p.name);
   ui.streamCardName.textContent = local ? `${p.name} (você)` : p.name;
 
-  const source = streamSource();
+  // Quem não assiste não recebe vídeo: a prévia só existe para quem já assiste (ou transmite).
+  const receives = local || state.watching;
+  const source = receives ? streamSource() : null;
   setVideoSource(ui.streamCardVideo, source);
   ui.streamCardWaiting.hidden = source !== null;
+  ui.streamCardWaiting.textContent = receives ? 'Conectando vídeo…' : 'Clique em Assistir para ver';
 
-  // Para os outros: ampliar a transmissão no palco (o vídeo já chega para todos na sala).
-  const watching = state.focus === STREAM_KEY;
+  const enlarged = state.watching && state.focus === STREAM_KEY;
   ui.streamCardWatch.hidden = local;
-  ui.streamCardWatch.disabled = watching;
-  ui.streamCardWatchLabel.textContent = watching ? 'Assistindo' : 'Assistir transmissão';
+  ui.streamCardWatch.disabled = enlarged;
+  ui.streamCardWatchLabel.textContent = enlarged ? 'Assistindo' : 'Assistir transmissão';
   ui.streamCardSelf.hidden = !local;
 }
 
+/** "Assistir transmissão" do cartão: começa a receber e amplia no palco. */
 function watchStream() {
   hoverCard.hide();
   if (!state.streamer) return;
+  setWatching(true);
   state.focus = STREAM_KEY;
   renderStage();
   const tile = tiles.get(STREAM_KEY);
@@ -801,8 +844,43 @@ function watchStream() {
 // ---- transmissão de vídeo -------------------------------------------------
 
 function setStreamer(streamer) {
+  const changed = state.streamer?.id !== streamer?.id;
   state.streamer = streamer;
+  if (changed) {
+    // Transmissão nova (ou nenhuma): ninguém está assistindo até escolher de novo.
+    state.watching = false;
+    state.viewers.clear();
+  }
   render(); // lista (selo AO VIVO), botões e palco
+  if (changed && streamer && !isLocalStreamer() && state.autoWatch) setWatching(true);
+}
+
+/** Estou assistindo a transmissão de outra pessoa? */
+const isWatching = () => state.streamer !== null && !isLocalStreamer() && state.watching;
+
+/**
+ * Começa/para de assistir a transmissão de outra pessoa. Quem transmite só envia (e codifica)
+ * vídeo para quem avisou que está assistindo.
+ */
+async function setWatching(watching) {
+  if (!state.streamer || isLocalStreamer() || state.watching === watching) return;
+  state.watching = watching;
+  if (!watching) {
+    if (document.pictureInPictureElement) document.exitPictureInPicture().catch(() => {});
+    if (state.focus === STREAM_KEY) state.focus = null;
+  }
+  render();
+  try {
+    await signaling.watchStream(watching);
+  } catch (err) {
+    setStatus(`Não foi possível ${watching ? 'começar a assistir' : 'parar de assistir'}: ${errorMessage(err)}`, 'warn');
+  }
+}
+
+function setAutoWatch(on) {
+  state.autoWatch = on;
+  writePref('voz.autoWatch', on);
+  if (on) setWatching(true);
 }
 
 function onRemoteVideo(id, track) {
@@ -882,7 +960,7 @@ async function startStream(kind) {
   track.onended = () => stopStream();
   // StreamStarted também chega para nós; marcamos já para a prévia aparecer sem esperar.
   setStreamer({ id: signaling.connectionId, name: state.name });
-  await state.session.setVideoMaxBitrate(bitrateFor(state.quality[kind]));
+  await applyStreamBitrate();
   await state.session.setVideoTrack(track);
   setStatus(`Você está transmitindo ${kind === 'screen' ? 'a tela' : 'a câmera'}.`);
 }
@@ -898,6 +976,9 @@ async function stopStream({ notifyServer = true } = {}) {
     t.stop();
   }
   await state.session?.setVideoTrack(null);
+  // Próxima transmissão começa sem ninguém assistindo (cada pessoa escolhe de novo).
+  await state.session?.clearVideoViewers();
+  state.viewers.clear();
   if (isLocalStreamer()) setStreamer(null);
   else render();
 
@@ -944,7 +1025,9 @@ async function previewCapture(kind, media) {
       state.cameraId = deviceId || null;
       saveDevice('videoinput', state.cameraId);
     },
-    estimate: (q) => uploadEstimate(q, state.participants.size - 1),
+    estimate: (q) => uploadEstimate(q, 0, state.uploadBudget), // ninguém assiste antes de começar
+    budget: state.uploadBudget,
+    onBudgetChange: (bps) => setUploadBudget(bps),
     onQualityChange: (q) => setQualityPref(kind, q),
     onAlwaysChange: (always) => setAlwaysPreview(kind, always),
     onError: (message) => setStatus(message, 'warn'),
@@ -1056,6 +1139,11 @@ signaling.setHandlers({
   },
   userLeft(id) {
     const p = state.participants.get(id);
+    if (state.viewers.delete(id)) {
+      applyStreamBitrate();
+      renderDock();
+    }
+    state.session?.setPeerVideoEnabled(id, false);
     if (state.streamer?.id === id) setStreamer(null);
     state.session?.removePeer(id);
     removeParticipant(id);
@@ -1068,6 +1156,14 @@ signaling.setHandlers({
     if (!state.inRoom) return;
     setStreamer({ id, name });
     if (id !== signaling.connectionId) setStatus(`${name} começou a transmitir`);
+  },
+  viewerChanged(id, watching) {
+    if (!isLocalStreamer()) return; // a transmissão acabou no caminho
+    if (watching) state.viewers.add(id);
+    else state.viewers.delete(id);
+    state.session?.setPeerVideoEnabled(id, watching);
+    applyStreamBitrate(); // o teto de upload é dividido entre quem assiste
+    renderDock();
   },
   streamStopped(id) {
     if (state.streamer?.id !== id) return;
@@ -1127,6 +1223,7 @@ function createSession() {
     onRemoteStream: attachRemoteStream,
     onRemoteVideo,
     videoMaxBitrate: bitrateFor(state.quality.camera), // trocado ao começar cada transmissão
+    preferredVideoCodec: state.videoCodec?.mimeType ?? null,
     onPeerFailed(id) {
       const name = state.participants.get(id)?.name ?? id;
       setStatus(
@@ -1144,6 +1241,8 @@ function createSession() {
 async function enterRoom() {
   resetSession();
   setVoiceState('connecting');
+  state.videoCodec = await videoCodecChoice;
+  log(`Codec de vídeo: ${state.videoCodec.reason}`);
   state.session = createSession();
 
   const { participants: existing, streamer } = await signaling.joinRoom(state.room, state.name);
@@ -1240,6 +1339,8 @@ function resetSession() {
   state.session?.close();
   state.session = null;
   state.streamer = null;
+  state.watching = false;
+  state.viewers.clear();
   state.remoteVideo.clear();
   clearRemoteParticipants();
   render();
@@ -1249,6 +1350,7 @@ async function leave({ notifyServer = true } = {}) {
   const wasInRoom = state.inRoom;
   state.inRoom = false;
   preview.cancel(); // prévia aberta: encerra a captura sem transmitir
+  stats.hide();
   closeAllMenus();
   stopLevelMeter();
   state.deafened = false;
@@ -1471,6 +1573,8 @@ async function onMenuOpen(menu) {
   if (menu === ui.menuMore) {
     ui.optGrid.checked = state.focus === null;
     ui.optNonvideo.checked = state.showNonVideo;
+    ui.optStats.checked = stats.isOpen;
+    ui.optAutowatch.checked = state.autoWatch;
   } else if (menu === ui.menuCamera) {
     syncQualityControls('camera');
     await refreshCameraList();
@@ -1532,17 +1636,36 @@ async function copyInvite() {
 function syncQualityControls(kind) {
   const c = qualityControls[kind];
   fillQualitySelects(c.resolution, c.fps, kind, state.quality[kind]);
+  fillBudgetSelect(c.budget, state.uploadBudget);
   c.preview.checked = state.alwaysPreview[kind];
   renderQuality();
 }
 
-/** Estimativa de upload nos menus (muda com a qualidade e com quantas pessoas estão na sala). */
+/** Estimativa de upload nos menus (muda com a qualidade, o teto e quantas pessoas assistem). */
 function renderQuality() {
-  const viewers = state.participants.size - 1;
   for (const kind of ['camera', 'screen']) {
-    qualityControls[kind].estimate.textContent = uploadEstimate(state.quality[kind], viewers);
+    const viewers = state.localVideoKind === kind ? state.viewers.size : 0;
+    qualityControls[kind].estimate.textContent = uploadEstimate(state.quality[kind], viewers, state.uploadBudget);
   }
   preview.refresh();
+}
+
+/**
+ * Limite de envio por pessoa da transmissão no ar: o da qualidade, dividido pelo teto de upload
+ * entre quem está assistindo. Recalculado quando alguém começa/para de assistir.
+ */
+async function applyStreamBitrate() {
+  const kind = state.localVideoKind;
+  if (!kind || !state.session) return;
+  await state.session.setVideoMaxBitrate(perViewerBitrate(state.quality[kind], state.viewers.size, state.uploadBudget));
+}
+
+async function setUploadBudget(bps) {
+  state.uploadBudget = bps;
+  saveUploadBudget(bps);
+  for (const kind of ['camera', 'screen']) fillBudgetSelect(qualityControls[kind].budget, bps);
+  renderQuality();
+  await applyStreamBitrate();
 }
 
 function setQualityPref(kind, q) {
@@ -1566,7 +1689,7 @@ async function changeQuality(kind, q) {
     setStatus(`Não foi possível aplicar ${qualityLabel(quality)}: ${errorMessage(err)}`, 'warn');
     return;
   }
-  await state.session?.setVideoMaxBitrate(bitrateFor(quality));
+  await applyStreamBitrate();
   setStatus(`Qualidade da ${STREAM_KINDS[kind].label}: ${qualityLabel(quality)}.`);
 }
 
@@ -1657,12 +1780,26 @@ hoverCard = setupHoverCard({
   onHide: () => { ui.streamCardVideo.srcObject = null; },
 });
 ui.streamCardWatch.addEventListener('click', watchStream);
+const stats = createStatsPanel({
+  panel: $('stats-panel'),
+  summary: $('stats-summary'),
+  peers: $('stats-peers'),
+  close: $('stats-close'),
+  getSession: () => state.session,
+  nameOf: (id) => state.participants.get(id)?.name ?? id,
+  note: () => `Codec preferido: ${state.videoCodec?.reason ?? '—'}`,
+  onClose: () => { ui.optStats.checked = false; },
+});
+ui.optAutowatch.addEventListener('change', () => setAutoWatch(ui.optAutowatch.checked));
+ui.stopWatchingBtn.addEventListener('click', () => setWatching(false));
+ui.optStats.addEventListener('change', () => (ui.optStats.checked ? stats.show() : stats.hide()));
 for (const kind of ['camera', 'screen']) {
   const c = qualityControls[kind];
   const onChange = () => changeQuality(kind, qualityFromSelects(c.resolution, c.fps));
   c.resolution.addEventListener('change', onChange);
   c.fps.addEventListener('change', onChange);
   c.preview.addEventListener('change', () => setAlwaysPreview(kind, c.preview.checked));
+  c.budget.addEventListener('change', () => setUploadBudget(Number(c.budget.value)));
 }
 ui.micSelect.addEventListener('change', () => switchMic(ui.micSelect.value));
 ui.speakerSelect.addEventListener('change', () => selectSpeaker(ui.speakerSelect.value));

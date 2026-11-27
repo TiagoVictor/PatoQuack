@@ -140,7 +140,7 @@
           </span>
           <div class="dock-text">
             <p id="stream-panel-title" class="dock-title"></p>
-            <p class="dock-sub">Todos na sala estão vendo</p>
+            <p id="stream-panel-sub" class="dock-sub">Ninguém assistindo ainda</p>
           </div>
           <button type="button" id="stop-stream-btn" class="icon-btn danger" aria-label="Parar transmissão" title="Parar transmissão">
             <svg class="icon" aria-hidden="true"><use href="#i-stop"/></svg>
@@ -195,6 +195,7 @@
           <span id="stream-quality" class="stream-quality" title="Resolução e quadros por segundo exibidos"></span>
           <span class="stream-live">AO VIVO</span>
         </span>
+        <button type="button" id="stop-watching-btn" class="header-btn" hidden>Parar de assistir</button>
       </header>
 
       <div id="room-alert" class="alert" role="alert" data-level="warn" hidden>
@@ -267,6 +268,18 @@
 
       <p id="toast" class="toast" role="status" data-visible="false"></p>
 
+      <!-- Estatísticas da transmissão (js/stats.js); abre pelo menu ⋯ -->
+      <section id="stats-panel" class="stats-panel" aria-labelledby="stats-title" hidden>
+        <header class="stats-head">
+          <h2 id="stats-title">Estatísticas da transmissão</h2>
+          <button type="button" id="stats-close" class="icon-btn small" aria-label="Fechar estatísticas">
+            <svg class="icon" aria-hidden="true"><use href="#i-close"/></svg>
+          </button>
+        </header>
+        <p id="stats-summary" class="stats-summary"></p>
+        <ul id="stats-peers" class="stats-peers"></ul>
+      </section>
+
       <details class="log">
         <summary>Log</summary>
         <ol id="log"></ol>
@@ -320,6 +333,10 @@
         </div>
         <span id="screen-estimate" class="menu-sub"></span>
       </div>
+      <label class="menu-field">
+        <span class="menu-label">Upload máximo</span>
+        <select id="screen-budget"></select>
+      </label>
       <label class="menu-check">
         <span>Sempre ver prévia da tela</span>
         <input type="checkbox" id="opt-screen-preview">
@@ -340,6 +357,10 @@
         </div>
         <span id="camera-estimate" class="menu-sub"></span>
       </div>
+      <label class="menu-field">
+        <span class="menu-label">Upload máximo</span>
+        <select id="camera-budget"></select>
+      </label>
       <label class="menu-check">
         <span>Sempre ver prévia do vídeo</span>
         <input type="checkbox" id="opt-camera-preview">
@@ -358,6 +379,14 @@
       <label class="menu-check">
         <span>Mostrar participantes sem vídeo</span>
         <input type="checkbox" id="opt-nonvideo">
+      </label>
+      <label class="menu-check">
+        <span>Assistir transmissões automaticamente</span>
+        <input type="checkbox" id="opt-autowatch">
+      </label>
+      <label class="menu-check">
+        <span>Estatísticas da transmissão</span>
+        <input type="checkbox" id="opt-stats">
       </label>
     </div>
   </div>
@@ -392,6 +421,10 @@
           <select id="preview-fps"></select>
         </label>
       </div>
+      <label class="preview-field">
+        <span class="preview-label">Upload máximo (dividido entre quem assistir)</span>
+        <select id="preview-budget"></select>
+      </label>
       <p id="preview-estimate" class="preview-hint"></p>
       <p id="preview-blocked" class="preview-warn" role="alert" hidden></p>
       <footer class="preview-foot">

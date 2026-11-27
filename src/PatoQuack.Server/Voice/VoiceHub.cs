@@ -15,7 +15,8 @@ namespace PatoQuack.Server.Voice;
 ///
 /// Transmissão de vídeo: no máximo uma pessoa por sala (StartStream/StopStream). O vídeo vai
 /// pelas mesmas peer connections (transceiver de vídeo criado vazio); o hub só guarda e avisa
-/// quem está transmitindo.
+/// quem está transmitindo. Quem quer ver chama WatchStream: o hub repassa só para quem
+/// transmite (ViewerChanged), que envia vídeo apenas para quem está assistindo.
 /// </summary>
 public sealed class VoiceHub(
     IRoomRegistry registry,
@@ -121,6 +122,23 @@ public sealed class VoiceHub(
     }
 
     public Task StopStream() => StopCurrentStreamAsync();
+
+    /// <summary>
+    /// Avisa quem transmite na sua sala que você começou ou parou de assistir. Sem transmissão
+    /// (ela pode ter acabado no caminho) ou sendo você quem transmite, não faz nada.
+    /// </summary>
+    public async Task WatchStream(bool watching)
+    {
+        var self = await registry.GetAsync(Context.ConnectionId)
+                   ?? throw new HubException("Você não está em nenhuma sala.");
+        var streamer = await registry.GetStreamerAsync(self.Room);
+        if (streamer is null || streamer.ConnectionId == Context.ConnectionId)
+        {
+            return;
+        }
+
+        await Clients.Client(streamer.ConnectionId).ViewerChanged(Context.ConnectionId, watching);
+    }
 
     private async Task StopCurrentStreamAsync()
     {
