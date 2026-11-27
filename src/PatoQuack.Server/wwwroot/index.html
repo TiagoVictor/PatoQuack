@@ -7,13 +7,98 @@
   <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
-  <main class="app">
-    <header class="brand">
-      <h1>PatoQuack</h1>
-      <span class="tag">voz</span>
-    </header>
+  <!-- Ícones (SVG inline, sem dependência externa). Uso: <svg class="icon"><use href="#i-mic"/></svg> -->
+  <svg class="sprite" aria-hidden="true" focusable="false">
+    <symbol id="i-mic" viewBox="0 0 24 24">
+      <rect x="9" y="2" width="6" height="12" rx="3"/>
+      <path d="M19 10v1a7 7 0 0 1-14 0v-1"/>
+      <path d="M12 18v4"/>
+    </symbol>
+    <symbol id="i-mic-off" viewBox="0 0 24 24">
+      <rect x="9" y="2" width="6" height="12" rx="3"/>
+      <path d="M19 10v1a7 7 0 0 1-14 0v-1"/>
+      <path d="M12 18v4"/>
+      <path d="M3 3l18 18"/>
+    </symbol>
+    <symbol id="i-volume" viewBox="0 0 24 24">
+      <path d="M11 5 6 9H2v6h4l5 4V5z"/>
+      <path d="M15.5 8.5a5 5 0 0 1 0 7"/>
+      <path d="M19 5a10 10 0 0 1 0 14"/>
+    </symbol>
+    <symbol id="i-screen" viewBox="0 0 24 24">
+      <rect x="2" y="3" width="20" height="14" rx="2"/>
+      <path d="M8 21h8"/>
+      <path d="M12 17v4"/>
+    </symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24">
+      <rect x="2" y="6" width="14" height="12" rx="2"/>
+      <path d="m16 10.5 6-3.5v10l-6-3.5"/>
+    </symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24">
+      <rect x="6" y="6" width="12" height="12" rx="2"/>
+    </symbol>
+    <symbol id="i-leave" viewBox="0 0 24 24">
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+      <path d="m16 17 5-5-5-5"/>
+      <path d="M21 12H9"/>
+    </symbol>
+    <symbol id="i-signal" viewBox="0 0 24 24">
+      <path d="M4 20h.01"/>
+      <path d="M4 15a5 5 0 0 1 5 5"/>
+      <path d="M4 10a10 10 0 0 1 10 10"/>
+      <path d="M4 5a15 15 0 0 1 15 15"/>
+    </symbol>
+    <symbol id="i-close" viewBox="0 0 24 24">
+      <path d="M18 6 6 18"/>
+      <path d="m6 6 12 12"/>
+    </symbol>
+    <!-- Ícones preenchidos: usar junto com a classe .icon-fill -->
+    <symbol id="i-hangup" viewBox="0 0 24 24">
+      <path d="M2.5 14.5C2.5 11 6.8 8.5 12 8.5s9.5 2.5 9.5 6l-.6 1.8a1 1 0 0 1-1.2.6l-3.1-.8a1 1 0 0 1-.7-.9l-.2-1.9a13 13 0 0 0-7.4 0l-.2 1.9a1 1 0 0 1-.7.9l-3.1.8a1 1 0 0 1-1.2-.6z"/>
+    </symbol>
+    <symbol id="i-more" viewBox="0 0 24 24">
+      <circle cx="5" cy="12" r="2"/>
+      <circle cx="12" cy="12" r="2"/>
+      <circle cx="19" cy="12" r="2"/>
+    </symbol>
+    <symbol id="i-fullscreen" viewBox="0 0 24 24">
+      <path d="M8 3H5a2 2 0 0 0-2 2v3"/>
+      <path d="M21 8V5a2 2 0 0 0-2-2h-3"/>
+      <path d="M3 16v3a2 2 0 0 0 2 2h3"/>
+      <path d="M16 21h3a2 2 0 0 0 2-2v-3"/>
+    </symbol>
+    <symbol id="i-fullscreen-exit" viewBox="0 0 24 24">
+      <path d="M8 3v3a2 2 0 0 1-2 2H3"/>
+      <path d="M21 8h-3a2 2 0 0 1-2-2V3"/>
+      <path d="M3 16h3a2 2 0 0 1 2 2v3"/>
+      <path d="M16 21v-3a2 2 0 0 1 2-2h3"/>
+    </symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24">
+      <path d="m6 9 6 6 6-6"/>
+    </symbol>
+    <symbol id="i-swap" viewBox="0 0 24 24">
+      <path d="M3 12a9 9 0 0 1 15-6.7L21 8"/>
+      <path d="M21 3v5h-5"/>
+      <path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>
+      <path d="M3 21v-5h5"/>
+    </symbol>
+    <symbol id="i-link" viewBox="0 0 24 24">
+      <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/>
+      <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>
+    </symbol>
+    <symbol id="i-pip" viewBox="0 0 24 24">
+      <rect x="2" y="4" width="20" height="16" rx="2"/>
+      <rect x="12" y="12" width="7" height="5" rx="1"/>
+    </symbol>
+  </svg>
 
-    <section id="join-view" class="card">
+  <!-- Tela de entrada -->
+  <main id="join-view" class="join">
+    <section class="join-card">
+      <header class="brand">
+        <h1>PatoQuack</h1>
+        <span class="tag">voz</span>
+      </header>
       <form id="join-form" autocomplete="on">
         <label>
           Seu nome
@@ -26,39 +111,329 @@
         </label>
         <button type="submit" id="join-btn" class="primary">Entrar na voz</button>
       </form>
+      <p id="status" class="status" role="status" data-level="info"></p>
     </section>
-
-    <section id="room-view" class="card" hidden>
-      <div class="room-header">
-        <h2><span class="hash">#</span><span id="room-name"></span></h2>
-        <span id="count" class="muted-text"></span>
-      </div>
-      <figure id="stream-view" class="stream" hidden>
-        <video id="stream-video" autoplay playsinline muted></video>
-        <figcaption><span class="live-dot" aria-hidden="true"></span><span id="stream-label"></span></figcaption>
-      </figure>
-      <ul id="participants" class="participants" aria-live="polite"></ul>
-      <div class="controls stream-controls">
-        <button type="button" id="screen-btn">Transmitir tela</button>
-        <button type="button" id="camera-btn">Transmitir câmera</button>
-        <button type="button" id="stop-stream-btn" class="active" hidden>Parar transmissão</button>
-      </div>
-      <div class="controls">
-        <button type="button" id="mute-btn" aria-pressed="false">Mutar</button>
-        <button type="button" id="leave-btn" class="danger">Sair</button>
-      </div>
-    </section>
-
-    <p id="status" class="status" role="status" data-level="info"></p>
-
-    <details class="log">
-      <summary>Log</summary>
-      <ol id="log"></ol>
-    </details>
-
-    <!-- Elementos <audio> dos participantes remotos -->
-    <div id="remote-audio" hidden></div>
   </main>
+
+  <!-- Sala: barra lateral (canal + controles) e palco (blocos de quem está na chamada) -->
+  <div id="room-view" class="room" hidden>
+    <aside class="sidebar">
+      <header class="sidebar-header">
+        <span class="sidebar-brand">PatoQuack</span>
+      </header>
+
+      <nav class="channels" aria-labelledby="voice-section-label">
+        <h2 id="voice-section-label" class="section-label">Canal de voz</h2>
+        <div class="channel">
+          <svg class="icon" aria-hidden="true"><use href="#i-volume"/></svg>
+          <span id="room-name" class="channel-name"></span>
+          <time id="call-timer" class="channel-timer" title="Tempo na chamada"></time>
+        </div>
+        <ul id="participants" class="participants" aria-label="Participantes"></ul>
+      </nav>
+
+      <div class="dock">
+        <!-- Só aparece enquanto você transmite -->
+        <section id="stream-panel" class="dock-section stream-panel" aria-label="Sua transmissão" hidden>
+          <span class="stream-panel-icon" aria-hidden="true">
+            <svg class="icon"><use id="stream-panel-icon" href="#i-screen"/></svg>
+          </span>
+          <div class="dock-text">
+            <p id="stream-panel-title" class="dock-title"></p>
+            <p class="dock-sub">Todos na sala estão vendo</p>
+          </div>
+          <button type="button" id="stop-stream-btn" class="icon-btn danger" aria-label="Parar transmissão" title="Parar transmissão">
+            <svg class="icon" aria-hidden="true"><use href="#i-stop"/></svg>
+          </button>
+        </section>
+
+        <section class="dock-section voice-panel" aria-label="Conexão de voz">
+          <div class="voice-panel-top">
+            <svg class="icon voice-signal" aria-hidden="true"><use href="#i-signal"/></svg>
+            <div class="dock-text">
+              <p id="voice-state" class="voice-state" data-state="connecting">Conectando…</p>
+              <p id="count" class="dock-sub"></p>
+            </div>
+            <button type="button" id="leave-btn" class="icon-btn leave" aria-label="Sair da sala" title="Sair da sala">
+              <svg class="icon" aria-hidden="true"><use href="#i-leave"/></svg>
+            </button>
+          </div>
+          <div class="voice-actions">
+            <button type="button" id="camera-btn" class="action-btn" aria-pressed="false" aria-label="Transmitir câmera" title="Transmitir câmera">
+              <svg class="icon" aria-hidden="true"><use href="#i-camera"/></svg>
+            </button>
+            <button type="button" id="screen-btn" class="action-btn" aria-pressed="false" aria-label="Transmitir tela" title="Transmitir tela">
+              <svg class="icon" aria-hidden="true"><use href="#i-screen"/></svg>
+            </button>
+          </div>
+        </section>
+
+        <section class="dock-section user-panel" aria-label="Você">
+          <span id="self-avatar" class="avatar" aria-hidden="true"></span>
+          <div class="dock-text">
+            <p id="self-name" class="user-name"></p>
+            <p id="self-state" class="dock-sub"></p>
+          </div>
+          <button type="button" id="mute-btn" class="icon-btn" aria-pressed="false" aria-label="Mutar microfone">
+            <svg class="icon icon-mic" aria-hidden="true"><use href="#i-mic"/></svg>
+            <svg class="icon icon-mic-off" aria-hidden="true"><use href="#i-mic-off"/></svg>
+          </button>
+        </section>
+      </div>
+    </aside>
+
+    <section class="main" aria-labelledby="channel-title">
+      <header class="main-header">
+        <svg class="icon" aria-hidden="true"><use href="#i-volume"/></svg>
+        <h1 id="channel-title" class="main-title"></h1>
+        <span id="stream-title" class="stream-title" hidden>
+          <span class="dot-sep" aria-hidden="true">•</span>
+          <span id="stream-title-avatar" class="avatar" aria-hidden="true"></span>
+          <span id="stream-title-text" class="stream-title-text"></span>
+        </span>
+        <span id="stream-badge" class="stream-badge" hidden>
+          <span id="stream-quality" class="stream-quality" title="Resolução e quadros por segundo exibidos"></span>
+          <span class="stream-live">AO VIVO</span>
+        </span>
+      </header>
+
+      <div id="room-alert" class="alert" role="alert" data-level="warn" hidden>
+        <span id="room-alert-text"></span>
+        <button type="button" id="room-alert-close" class="icon-btn small" aria-label="Fechar aviso">
+          <svg class="icon" aria-hidden="true"><use href="#i-close"/></svg>
+        </button>
+      </div>
+
+      <!-- Palco: blocos montados pelo app.js. Em foco, o bloco escolhido vai para #stage-grid
+           e os demais para #stage-strip. -->
+      <div class="stage-wrap">
+        <div id="stage-grid" class="stage-grid"></div>
+        <p id="stage-empty" class="stage-empty" hidden>
+          Ninguém está transmitindo vídeo. Para ver os participantes, ative
+          <strong>Mostrar participantes sem vídeo</strong> em Mais opções (⋯).
+        </p>
+      </div>
+      <div id="stage-strip" class="stage-strip" hidden></div>
+
+      <!-- Barra de controles da chamada (espelha os botões da doca da barra lateral) -->
+      <div class="call-row">
+        <div class="call-bar" role="toolbar" aria-label="Controles da chamada">
+          <div class="bar-group">
+            <div class="split">
+              <button type="button" id="bar-mic" class="bar-btn" aria-pressed="false" aria-label="Mutar microfone" title="Mutar">
+                <svg class="icon icon-mic" aria-hidden="true"><use href="#i-mic"/></svg>
+                <svg class="icon icon-mic-off" aria-hidden="true"><use href="#i-mic-off"/></svg>
+              </button>
+              <button type="button" id="bar-mic-caret" class="bar-caret" popovertarget="menu-mic" aria-label="Opções de voz" title="Opções de voz">
+                <svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg>
+              </button>
+            </div>
+            <div class="split">
+              <button type="button" id="bar-camera" class="bar-btn" aria-pressed="false" aria-label="Transmitir câmera" title="Transmitir câmera">
+                <svg class="icon" aria-hidden="true"><use href="#i-camera"/></svg>
+              </button>
+              <button type="button" id="bar-camera-caret" class="bar-caret" popovertarget="menu-camera" aria-label="Opções da câmera" title="Opções da câmera">
+                <svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="bar-group">
+            <div class="split">
+              <button type="button" id="bar-screen" class="bar-btn" aria-pressed="false" aria-label="Transmitir tela" title="Transmitir tela">
+                <svg class="icon" aria-hidden="true"><use href="#i-screen"/></svg>
+              </button>
+              <button type="button" id="bar-screen-caret" class="bar-caret" popovertarget="menu-screen" aria-label="Opções da transmissão de tela" title="Opções da transmissão">
+                <svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg>
+              </button>
+            </div>
+            <button type="button" id="bar-more" class="bar-btn" popovertarget="menu-more" aria-label="Mais opções" title="Mais opções">
+              <svg class="icon icon-fill" aria-hidden="true"><use href="#i-more"/></svg>
+            </button>
+          </div>
+          <button type="button" id="bar-leave" class="bar-hangup" aria-label="Sair da sala" title="Sair da sala">
+            <svg class="icon icon-fill" aria-hidden="true"><use href="#i-hangup"/></svg>
+          </button>
+        </div>
+        <div class="corner-actions">
+          <button type="button" id="pip-btn" class="icon-btn" aria-label="Abrir transmissão em janela flutuante" title="Janela flutuante" hidden>
+            <svg class="icon" aria-hidden="true"><use href="#i-pip"/></svg>
+          </button>
+          <button type="button" id="fullscreen-btn" class="icon-btn" aria-pressed="false" aria-label="Tela cheia" title="Tela cheia" hidden>
+            <svg class="icon icon-fs-enter" aria-hidden="true"><use href="#i-fullscreen"/></svg>
+            <svg class="icon icon-fs-exit" aria-hidden="true"><use href="#i-fullscreen-exit"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <p id="toast" class="toast" role="status" data-visible="false"></p>
+
+      <details class="log">
+        <summary>Log</summary>
+        <ol id="log"></ol>
+      </details>
+    </section>
+
+    <!-- Painéis (popover nativo: fecham com Esc ou clique fora). Posicionados por js/menus.js
+         junto do botão indicado em data-anchor. -->
+    <div id="menu-mic" class="menu menu-wide" popover role="dialog" aria-label="Opções de voz" data-anchor="bar-mic-caret">
+      <label class="menu-field">
+        <span class="menu-label">Dispositivo de entrada</span>
+        <select id="mic-select"></select>
+      </label>
+      <label id="speaker-field" class="menu-field">
+        <span class="menu-label">Dispositivo de saída</span>
+        <select id="speaker-select"></select>
+      </label>
+      <p id="speaker-hint" class="menu-hint" hidden>Este navegador não permite escolher a saída de áudio pela página; o som sai pelo dispositivo padrão do sistema.</p>
+      <hr class="menu-sep">
+      <div class="menu-field">
+        <span id="mic-level-label" class="menu-label">Nível de entrada</span>
+        <div id="mic-level" class="level-meter" role="meter" aria-labelledby="mic-level-label"
+             aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
+      </div>
+      <label class="menu-field">
+        <span class="menu-label">Volume de saída <output id="output-volume-value" class="menu-value"></output></span>
+        <input type="range" id="output-volume" min="0" max="100" step="1">
+      </label>
+      <p class="menu-hint">No iPhone/iPad o volume é controlado só pelos botões do aparelho.</p>
+      <hr class="menu-sep">
+      <label class="menu-check">
+        <span>Desativar áudio <small class="menu-sub">não ouve ninguém e muta seu microfone</small></span>
+        <input type="checkbox" id="opt-deafen">
+      </label>
+    </div>
+
+    <div id="menu-screen" class="menu menu-wide" popover role="dialog" aria-label="Opções da transmissão de tela" data-anchor="bar-screen-caret">
+      <button type="button" id="menu-screen-stop" class="menu-item danger">
+        <svg class="icon" aria-hidden="true"><use href="#i-stop"/></svg>Parar de transmitir
+      </button>
+      <button type="button" id="menu-screen-change" class="menu-item">
+        <svg class="icon" aria-hidden="true"><use href="#i-swap"/></svg>Alterar a transmissão
+      </button>
+      <!-- Parar/alterar só aparecem enquanto você transmite a tela -->
+      <hr id="menu-screen-sep" class="menu-sep">
+      <div class="menu-field">
+        <span class="menu-label">Qualidade da tela</span>
+        <div class="quality-row">
+          <select id="screen-resolution" aria-label="Resolução da tela"></select>
+          <select id="screen-fps" aria-label="Quadros por segundo da tela"></select>
+        </div>
+        <span id="screen-estimate" class="menu-sub"></span>
+      </div>
+      <label class="menu-check">
+        <span>Sempre ver prévia da tela</span>
+        <input type="checkbox" id="opt-screen-preview">
+      </label>
+    </div>
+
+    <div id="menu-camera" class="menu menu-wide" popover role="dialog" aria-label="Opções da câmera" data-anchor="bar-camera-caret">
+      <label class="menu-field">
+        <span class="menu-label">Câmera</span>
+        <select id="camera-select"></select>
+      </label>
+      <p id="camera-hint" class="menu-hint" hidden>Os nomes das câmeras aparecem depois que o navegador libera a câmera (na primeira transmissão).</p>
+      <div class="menu-field">
+        <span class="menu-label">Qualidade da câmera</span>
+        <div class="quality-row">
+          <select id="camera-resolution" aria-label="Resolução da câmera"></select>
+          <select id="camera-fps" aria-label="Quadros por segundo da câmera"></select>
+        </div>
+        <span id="camera-estimate" class="menu-sub"></span>
+      </div>
+      <label class="menu-check">
+        <span>Sempre ver prévia do vídeo</span>
+        <input type="checkbox" id="opt-camera-preview">
+      </label>
+    </div>
+
+    <div id="menu-more" class="menu" popover role="dialog" aria-label="Mais opções" data-anchor="bar-more">
+      <button type="button" id="menu-invite" class="menu-item">
+        <svg class="icon" aria-hidden="true"><use href="#i-link"/></svg>Copiar link de convite
+      </button>
+      <hr class="menu-sep">
+      <label class="menu-check">
+        <span>Exibição em grade</span>
+        <input type="checkbox" id="opt-grid">
+      </label>
+      <label class="menu-check">
+        <span>Mostrar participantes sem vídeo</span>
+        <input type="checkbox" id="opt-nonvideo">
+      </label>
+    </div>
+  </div>
+
+  <!-- Prévia antes de transmitir (js/preview-dialog.js). Nada sai para a sala enquanto está aberta. -->
+  <dialog id="preview-dialog" class="preview-dialog" aria-labelledby="preview-title">
+    <div class="preview-content">
+      <header class="preview-head">
+        <h2 id="preview-title">Vamos ligar a câmera?</h2>
+        <button type="button" id="preview-close" class="icon-btn" aria-label="Fechar e cancelar">
+          <svg class="icon" aria-hidden="true"><use href="#i-close"/></svg>
+        </button>
+      </header>
+      <div class="preview-video">
+        <video id="preview-video" autoplay playsinline muted aria-label="Prévia do vídeo"></video>
+        <span id="preview-waiting" class="preview-waiting" hidden>Abrindo…</span>
+      </div>
+      <label id="preview-camera-field" class="preview-field">
+        <span class="preview-label">Câmera</span>
+        <select id="preview-camera"></select>
+      </label>
+      <button type="button" id="preview-rechoose" class="preview-secondary">
+        <svg class="icon" aria-hidden="true"><use href="#i-swap"/></svg>Escolher outra tela ou janela
+      </button>
+      <div class="preview-quality">
+        <label class="preview-field">
+          <span class="preview-label">Resolução</span>
+          <select id="preview-resolution"></select>
+        </label>
+        <label class="preview-field">
+          <span class="preview-label">Quadros por segundo</span>
+          <select id="preview-fps"></select>
+        </label>
+      </div>
+      <p id="preview-estimate" class="preview-hint"></p>
+      <p id="preview-blocked" class="preview-warn" role="alert" hidden></p>
+      <footer class="preview-foot">
+        <label class="preview-check">
+          <input type="checkbox" id="preview-always">
+          <span>Sempre ver prévia do vídeo</span>
+        </label>
+        <button type="button" id="preview-confirm" class="primary">
+          <span id="preview-confirm-label">Ativar câmera</span>
+        </button>
+      </footer>
+    </div>
+  </dialog>
+
+  <!-- Cartão de prévia de quem está transmitindo (js/hovercard.js posiciona; js/app.js preenche) -->
+  <div id="stream-card" class="hovercard" popover="manual" role="dialog" aria-labelledby="stream-card-name">
+    <header class="hovercard-head">
+      <span id="stream-card-avatar" class="avatar" aria-hidden="true"></span>
+      <span id="stream-card-name" class="hovercard-name"></span>
+    </header>
+    <div class="hovercard-body">
+      <p class="hovercard-row">
+        <span>Transmitindo agora</span>
+        <span class="live-badge">AO VIVO</span>
+      </p>
+      <div class="hovercard-preview">
+        <video id="stream-card-video" autoplay playsinline muted aria-label="Prévia da transmissão"></video>
+        <span id="stream-card-waiting" class="hovercard-waiting">Conectando vídeo…</span>
+      </div>
+      <button type="button" id="stream-card-watch" class="hovercard-action">
+        <svg class="icon" aria-hidden="true"><use href="#i-screen"/></svg>
+        <span id="stream-card-watch-label">Assistir transmissão</span>
+      </button>
+      <p id="stream-card-self" class="hovercard-action is-self">
+        <svg class="icon" aria-hidden="true"><use href="#i-screen"/></svg>
+        <span>Você está transmitindo!</span>
+      </p>
+    </div>
+  </div>
+
+  <!-- Elementos <audio> dos participantes remotos -->
+  <div id="remote-audio" hidden></div>
 
   <script>
     // Rede de segurança: se o app falhar ao carregar, mostra o erro em vez de "não acontecer nada".
@@ -66,6 +441,13 @@
       var s = document.getElementById('status');
       s.dataset.level = 'error';
       s.textContent = message;
+      // Dentro da sala o #status fica escondido; o aviso aparece na faixa da área principal.
+      if (!document.getElementById('room-view').hidden) {
+        var alert = document.getElementById('room-alert');
+        alert.dataset.level = 'error';
+        document.getElementById('room-alert-text').textContent = message;
+        alert.hidden = false;
+      }
     }
     if (location.protocol === 'file:') {
       showFatal('Esta página foi aberta direto do disco (file://), e assim o navegador bloqueia o app. ' +

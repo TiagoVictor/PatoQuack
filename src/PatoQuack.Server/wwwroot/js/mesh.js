@@ -126,6 +126,29 @@ export class MeshVoiceSession {
     await Promise.all([...this.peers.values()].map((peer) => this.#guard(peer.id, () => this.#applyVideo(peer))));
   }
 
+  /**
+   * Muda o limite de envio de vídeo (bps) em todas as conexões, sem renegociar.
+   * Conexões criadas depois usam o novo valor.
+   * @param {number} bps
+   */
+  async setVideoMaxBitrate(bps) {
+    this.videoMaxBitrate = bps;
+    await Promise.all([...this.peers.values()].map((peer) => this.#guard(peer.id, () => this.#applyVideo(peer))));
+  }
+
+  /**
+   * Troca o microfone (outro dispositivo) em todas as conexões, sem renegociar.
+   * Conexões criadas depois já nascem com o stream novo.
+   * @param {MediaStream} stream
+   */
+  async replaceAudioTrack(stream) {
+    this.localStream = stream;
+    const [track] = stream.getAudioTracks();
+    await Promise.all([...this.peers.values()].map((peer) => this.#guard(peer.id, async () => {
+      if (peer.audioSender && peer.pc.connectionState !== 'closed') await peer.audioSender.replaceTrack(track ?? null);
+    })));
+  }
+
   removePeer(id) {
     const peer = this.peers.get(id);
     this.earlyCandidates.delete(id);
@@ -170,6 +193,7 @@ export class MeshVoiceSession {
       pc,
       initiator,
       tracksAdded: false,
+      audioSender: null,
       videoSender: null,
       iceRestarted: false,
       pendingCandidates: this.earlyCandidates.get(id) ?? [],
@@ -219,7 +243,8 @@ export class MeshVoiceSession {
   #addLocalTracks(peer) {
     if (peer.tracksAdded) return;
     for (const track of this.localStream.getAudioTracks()) {
-      peer.pc.addTrack(track, this.localStream);
+      // Guardamos o sender para trocar o microfone depois (replaceAudioTrack).
+      peer.audioSender = peer.pc.addTrack(track, this.localStream);
     }
 
     if (peer.initiator) {
@@ -291,6 +316,7 @@ export class MeshVoiceSession {
  *   pc: RTCPeerConnection,
  *   initiator: boolean,
  *   tracksAdded: boolean,
+ *   audioSender: RTCRtpSender | null,
  *   videoSender: RTCRtpSender | null,
  *   iceRestarted: boolean,
  *   pendingCandidates: RTCIceCandidateInit[],
