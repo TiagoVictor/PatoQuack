@@ -5,9 +5,6 @@ public sealed class ChatOptions
 {
     public const string SectionName = "Chat";
 
-    /// <summary>Arquivo SQLite. Caminho relativo = relativo à pasta do app (ContentRoot).</summary>
-    public string DatabasePath { get; set; } = "data/patoquack.db";
-
     /// <summary>
     /// Mensagens mais antigas que isto são apagadas. Sem login, quem souber o nome da sala lê o
     /// histórico guardado: a retenção limita essa exposição. 0 = guardar para sempre.

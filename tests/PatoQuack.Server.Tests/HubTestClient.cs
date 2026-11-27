@@ -31,11 +31,11 @@ internal sealed class HubTestClient
     public HubConnection Connection { get; }
     public string Id => Connection.ConnectionId!;
 
-    public async Task<IReadOnlyList<ParticipantDto>> JoinAsync(string room, string name) =>
-        (await JoinWithStreamAsync(room, name)).Participants;
+    public async Task<IReadOnlyList<ParticipantDto>> JoinAsync(string room) =>
+        (await JoinWithStreamAsync(room)).Participants;
 
-    public Task<JoinRoomResultDto> JoinWithStreamAsync(string room, string name) =>
-        Connection.InvokeAsync<JoinRoomResultDto>("JoinRoom", room, name);
+    public Task<JoinRoomResultDto> JoinWithStreamAsync(string room) =>
+        Connection.InvokeAsync<JoinRoomResultDto>("JoinRoom", room);
 
     public async Task<object?[]> NextAsync(string method)
     {
@@ -54,7 +54,16 @@ internal sealed class HubTestClient
         });
     }
 
-    public static async Task<HubTestClient> ConnectAsync(WebApplicationFactory<Program> factory)
+    /// <summary>Cria uma conta com esse nome, faz login e conecta ao hub com o cookie da sessão.</summary>
+    public static async Task<HubTestClient> ConnectAsync(PatoQuackFactory factory, string? displayName = null)
+    {
+        var user = await factory.CreateUserAsync(displayName ?? $"P{Guid.NewGuid():N}"[..8]);
+        var cookie = await factory.LoginCookieAsync(user.Email!);
+        return await ConnectWithCookieAsync(factory, cookie);
+    }
+
+    /// <summary>Conecta com um cabeçalho Cookie qualquer (null = sem login).</summary>
+    public static async Task<HubTestClient> ConnectWithCookieAsync(WebApplicationFactory<Program> factory, string? cookie)
     {
         var server = factory.Server;
         var connection = new HubConnectionBuilder()
@@ -62,6 +71,7 @@ internal sealed class HubTestClient
             {
                 options.Transports = HttpTransportType.LongPolling;
                 options.HttpMessageHandlerFactory = _ => server.CreateHandler();
+                if (cookie is not null) options.Headers["Cookie"] = cookie;
             })
             .Build();
 

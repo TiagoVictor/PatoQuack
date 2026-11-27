@@ -4,7 +4,7 @@ namespace PatoQuack.Server.Chat;
 
 /// <summary>Apaga mensagens mais antigas que a retenção configurada: ao iniciar e a cada hora.</summary>
 public sealed class ChatRetentionService(
-    IChatStore store,
+    IServiceScopeFactory scopes,
     IOptions<ChatOptions> options,
     TimeProvider time,
     ILogger<ChatRetentionService> logger) : BackgroundService
@@ -25,6 +25,8 @@ public sealed class ChatRetentionService(
         {
             try
             {
+                await using var scope = scopes.CreateAsyncScope();
+                var store = scope.ServiceProvider.GetRequiredService<IChatStore>();
                 var deleted = await store.DeleteOlderThanAsync(time.GetUtcNow().AddDays(-days));
                 if (deleted > 0)
                 {

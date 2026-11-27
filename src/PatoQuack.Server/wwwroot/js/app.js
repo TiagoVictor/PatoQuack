@@ -1,5 +1,6 @@
 // Orquestra a UI: microfone, sinalização, sessão de voz, lista de participantes e palco.
 
+import { createInvite, getAuthState, logout as apiLogout } from './api.js';
 import { AUDIO_CONSTRAINTS, HUB_URL, ICE_SERVERS } from './config.js';
 import {
   fillDeviceSelect, isMissingDevice, onDeviceChange, saveDevice, savedDevice, withDevice,
@@ -48,7 +49,9 @@ const ui = {
   joinView: $('join-view'),
   joinForm: $('join-form'),
   joinBtn: $('join-btn'),
-  name: $('name'),
+  meName: $('me-name'),
+  logoutBtn: $('logout-btn'),
+  menuLogout: $('menu-logout'),
   room: $('room'),
   roomView: $('room-view'),
   roomName: $('room-name'),
@@ -1271,7 +1274,7 @@ async function enterRoom() {
   log(`Codec de vídeo: ${state.videoCodec.reason}`);
   state.session = createSession();
 
-  const { participants: existing, streamer } = await signaling.joinRoom(state.room, state.name);
+  const { participants: existing, streamer } = await signaling.joinRoom(state.room);
   // StreamStarted pode ter chegado antes da resposta; a resposta é o retrato no momento da entrada.
   if (streamer && !state.streamer) setStreamer({ id: streamer.connectionId, name: streamer.name });
   for (const p of existing) {
@@ -1291,7 +1294,7 @@ async function enterRoom() {
 
 async function join(event) {
   event.preventDefault();
-  const name = ui.name.value.trim();
+  const name = state.name; // vem da conta (o servidor também usa a da sessão)
   const room = ui.room.value.trim().toLowerCase();
   if (!name || !room) return;
 
@@ -1350,6 +1353,11 @@ async function join(event) {
     if (!signaling.isConnected) await signaling.start();
     await enterRoom();
   } catch (err) {
+    // Sessão vencida (o hub exige login): volta para a tela de entrar.
+    if (/\b401\b|Unauthorized/.test(String(err?.message ?? err))) {
+      location.replace(`/auth.html?modo=entrar&sala=${encodeURIComponent(room)}`);
+      return;
+    }
     setStatus(`Não foi possível entrar: ${errorMessage(err)}`, 'error');
     await leave({ notifyServer: false });
   }
@@ -1647,16 +1655,29 @@ function setShowNonVideo(show) {
   ui.optGrid.checked = state.focus === null;
 }
 
+/** Gera um convite de cadastro (uso único, 7 dias) que já leva à sala atual. */
 async function copyInvite() {
   closeAllMenus();
-  const url = new URL(location.pathname, location.origin);
-  url.searchParams.set('sala', state.room);
+  let invite;
   try {
-    await navigator.clipboard.writeText(url.href);
-    setStatus('Link de convite copiado.');
-  } catch {
-    setStatus(`Não foi possível copiar automaticamente. Link: ${url.href}`, 'warn');
+    invite = await createInvite(state.room);
+  } catch (err) {
+    setStatus(`Não foi possível criar o convite: ${err.message}`, 'error');
+    return;
   }
+  try {
+    await navigator.clipboard.writeText(invite.url);
+    setStatus('Convite copiado: vale 7 dias, para 1 pessoa.');
+  } catch {
+    setStatus(`Não foi possível copiar automaticamente. Convite (7 dias, 1 pessoa): ${invite.url}`, 'warn');
+  }
+}
+
+async function signOut() {
+  closeAllMenus();
+  if (state.inRoom) await leave();
+  try { await apiLogout(); } catch { /* a sessão some do mesmo jeito ao recarregar */ }
+  location.replace('/auth.html?modo=entrar');
 }
 
 // ---- qualidade e prévia ---------------------------------------------------
@@ -1753,20 +1774,38 @@ function readNumberPref(key, fallback) {
 }
 
 function remember() {
-  try {
-    localStorage.setItem('voz.name', state.name);
-    localStorage.setItem('voz.room', state.room);
-  } catch { /* storage indisponível */ }
+  try { localStorage.setItem('voz.room', state.room); } catch { /* storage indisponível */ }
 }
 
 function restore() {
   const params = new URLSearchParams(location.search);
   try {
-    ui.name.value = localStorage.getItem('voz.name') ?? '';
     ui.room.value = params.get('sala') ?? localStorage.getItem('voz.room') ?? 'geral';
   } catch {
     ui.room.value = params.get('sala') ?? 'geral';
   }
+}
+
+/** Sem sessão, vai para a tela de conta (preservando a sala do link). */
+async function boot() {
+  restore();
+  let auth;
+  try {
+    auth = await getAuthState();
+  } catch (err) {
+    setStatus(err.message, 'error');
+    return;
+  }
+  if (!auth.user) {
+    const q = new URLSearchParams({ modo: auth.setupRequired ? 'configurar' : 'entrar' });
+    const room = new URLSearchParams(location.search).get('sala');
+    if (room) q.set('sala', room);
+    location.replace(`/auth.html?${q}`);
+    return;
+  }
+  state.name = auth.user.displayName;
+  ui.meName.textContent = auth.user.displayName;
+  ui.joinBtn.disabled = false;
 }
 
 ui.joinForm.onsubmit = join; // substitui o handler de segurança do index.html
@@ -1933,5 +1972,7 @@ onDeviceChange(() => {
 });
 window.addEventListener('pagehide', () => { if (state.inRoom) signaling.stop(); });
 
-restore();
+ui.logoutBtn.addEventListener('click', signOut);
+ui.menuLogout.addEventListener('click', signOut);
+boot();
 render();

@@ -16,8 +16,8 @@ public sealed class ChatHubTests(PatoQuackFactory factory) : IClassFixture<PatoQ
     {
         var ana = await JoinAsync("Ana");
         var bia = await JoinAsync("Bia");
-        var outsider = await ConnectAsync();
-        await outsider.JoinAsync(_room + "-x", "Outro");
+        var outsider = await ConnectAsync("Outro");
+        await outsider.JoinAsync(_room + "-x");
 
         var sent = await ana.Connection.InvokeAsync<ChatMessageDto>("SendChatMessage", "  olá\r\nmundo  ");
         Assert.Equal("olá\nmundo", sent.Text);
@@ -37,7 +37,8 @@ public sealed class ChatHubTests(PatoQuackFactory factory) : IClassFixture<PatoQ
     [Fact]
     public async Task History_is_paged_newest_first_per_room_without_connection_ids()
     {
-        var store = factory.Services.GetRequiredService<IChatStore>();
+        using var scope = factory.Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IChatStore>();
         var start = DateTimeOffset.UtcNow.AddMinutes(-10);
         for (var i = 1; i <= 120; i++)
         {
@@ -118,14 +119,14 @@ public sealed class ChatHubTests(PatoQuackFactory factory) : IClassFixture<PatoQ
 
     private async Task<HubTestClient> JoinAsync(string name)
     {
-        var client = await ConnectAsync();
-        await client.JoinAsync(_room, name);
+        var client = await ConnectAsync(name);
+        await client.JoinAsync(_room);
         return client;
     }
 
-    private async Task<HubTestClient> ConnectAsync()
+    private async Task<HubTestClient> ConnectAsync(string? name = null)
     {
-        var client = await HubTestClient.ConnectAsync(factory);
+        var client = await HubTestClient.ConnectAsync(factory, name);
         _clients.Add(client);
         return client;
     }

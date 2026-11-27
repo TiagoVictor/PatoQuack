@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PatoQuack · Conta</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <main class="join">
+    <section class="join-card auth-card">
+      <header class="brand">
+        <h1>PatoQuack</h1>
+        <span class="tag">voz</span>
+      </header>
+      <h2 id="auth-title" class="auth-title">Entrar</h2>
+      <p id="auth-intro" class="auth-intro" hidden></p>
+
+      <form id="auth-form" novalidate>
+        <label id="field-email">
+          E-mail
+          <input id="email" type="email" maxlength="254" autocomplete="email" required>
+        </label>
+        <label id="field-name">
+          Nome de exibição
+          <input id="display-name" maxlength="32" autocomplete="nickname" required placeholder="Como o grupo vai te ver">
+        </label>
+        <label id="field-password">
+          Senha
+          <input id="password" type="password" minlength="10" autocomplete="current-password" required>
+        </label>
+        <label id="field-password2">
+          Repita a senha
+          <input id="password2" type="password" minlength="10" autocomplete="new-password" required>
+        </label>
+        <p id="password-hint" class="auth-hint">Pelo menos 10 caracteres. Uma frase fácil de lembrar funciona bem.</p>
+        <button type="submit" id="auth-submit" class="primary">Entrar</button>
+      </form>
+
+      <p id="auth-status" class="status" role="status" data-level="info"></p>
+      <button type="button" id="auth-resend" class="link-btn" hidden>Reenviar o e-mail de confirmação</button>
+      <nav id="auth-links" class="auth-links"></nav>
+    </section>
+  </main>
+  <script type="module" src="js/auth.js"></script>
+</body>
+</html>

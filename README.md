@@ -145,11 +145,33 @@ Roteiro manual: três abas na mesma sala, uma clica em **Transmitir tela** e as 
 vídeo. Uma quarta aba entra no meio e também vê. Feche a aba de quem transmite: o player some
 para os outros.
 
+## Contas
+
+Login com e-mail e senha (ASP.NET Core Identity + EF Core + SQLite em `storage/patoquack.db`,
+migrações em `Data/Migrations`, aplicadas ao iniciar). O hub de voz exige login e o nome exibido
+vem da conta.
+
+- **Primeiro acesso:** com o banco vazio, o app abre "Primeiro acesso" e cria o **administrador**.
+- **Cadastro só por convite:** menu ⋯ → *Convidar pessoa* gera um link de uso único (7 dias) que
+  já leva à sala. Quem se cadastra recebe um e-mail de confirmação e só entra depois de confirmar.
+- **Segurança:** senha com 10+ caracteres; 5 erros bloqueiam a conta por 15 min; limite de
+  tentativas por IP nas rotas de conta; cookie `HttpOnly`, `SameSite=Lax` (Secure em HTTPS); toda
+  chamada que muda estado exige o cabeçalho `X-PatoQuack` (proteção contra requisição forjada);
+  "esqueci a senha" e login não revelam se um e-mail tem conta.
+- **E-mail:** em desenvolvimento (`Email:Mode = Pickup`) os e-mails são gravados como JSON em
+  `storage/mail` — abra o arquivo e copie o link. Em produção use `Email:Mode = Smtp` com
+  `Email:Host`, `Email:Port`, `Email:Username`, `Email:From` e a senha em variável de ambiente
+  (`Email__Password`). **Configure `App:PublicUrl`** (ex.: `https://patoquack.seudominio.com`):
+  sem ele, fora do desenvolvimento, o servidor se recusa a montar links (evita links de
+  redefinição de senha forjados pelo cabeçalho Host).
+- **Proxy reverso na VPS:** configure os cabeçalhos encaminhados (`X-Forwarded-For`) para o limite
+  por IP enxergar o IP real.
+
 ## Chat de texto
 
 Coluna à direita da chamada (em telas menores, painel por cima do palco; no celular, tela cheia).
 As mensagens passam pelo hub (`SendChatMessage`, `GetChatHistory`, `Typing`) e ficam num arquivo
-**SQLite** (`Chat:DatabasePath`, padrão `data/patoquack.db`, fora do git), atrás da interface
+**SQLite** (`ConnectionStrings:App`, padrão `storage/patoquack.db`, fora do git), atrás da interface
 `IChatStore` — trocar por PostgreSQL é escrever outra implementação.
 
 - **Histórico:** quem entra recebe as 50 mais recentes; "Carregar mensagens anteriores" busca mais.

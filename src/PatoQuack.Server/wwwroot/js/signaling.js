@@ -59,7 +59,8 @@ export class VoiceSignaling {
    *   streamer: {connectionId: string, name: string} | null,
    * }>}
    */
-  joinRoom(room, name) { return this.connection.invoke('JoinRoom', room, name); }
+  /** Entra na sala. O nome exibido vem da conta (sessão), não do cliente. */
+  joinRoom(room) { return this.connection.invoke('JoinRoom', room); }
   leaveRoom() { return this.connection.invoke('LeaveRoom'); }
   setMuted(muted) { return this.connection.invoke('SetMuted', muted); }
   startStream() { return this.connection.invoke('StartStream'); }

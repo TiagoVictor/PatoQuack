@@ -100,6 +100,18 @@ form { display: grid; gap: 14px; }
 label { display: grid; gap: 6px; font-size: .85rem; color: var(--muted); font-weight: 600; }
 
 .status { min-height: 1.4em; font-size: .9rem; color: var(--muted); }
+
+/* ---- telas de conta (auth.html) e cabeçalho da entrada ---------------------------- */
+.auth-title { margin: 0; font-size: 1.1rem; }
+.auth-intro { color: var(--text-2); font-size: .9rem; }
+.auth-hint { margin-top: -6px; font-size: .78rem; color: var(--muted); }
+.auth-links { display: flex; gap: 16px; flex-wrap: wrap; font-size: .85rem; }
+.auth-links:empty { display: none; }
+.auth-links a, .link-btn { color: #00a8fc; }
+.link-btn { padding: 0; background: none; font-size: .85rem; font-weight: 600; justify-self: start; }
+.link-btn:hover { filter: none; text-decoration: underline; }
+.join-account { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .85rem; color: var(--muted); }
+.join-account strong { color: var(--text); }
 .status:empty { display: none; }
 .status[data-level="warn"] { color: var(--warn); }
 .status[data-level="error"] { color: var(--danger); }

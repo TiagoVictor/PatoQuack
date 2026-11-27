@@ -4,9 +4,8 @@ namespace PatoQuack.Server.Chat;
 public sealed record StoredChatMessage(long Id, string Room, string AuthorName, string Text, DateTimeOffset SentAt);
 
 /// <summary>
-/// Onde as mensagens ficam. A implementação atual é SQLite (um arquivo); trocar por outro banco
-/// (ex.: PostgreSQL, para várias instâncias do servidor) é uma nova implementação desta interface
-/// e uma linha no Program.cs.
+/// Onde as mensagens ficam. A implementação atual usa o banco da aplicação via EF Core (SQLite);
+/// trocar de banco (ex.: PostgreSQL) é trocar o provedor do EF no Program.cs.
 /// </summary>
 public interface IChatStore
 {

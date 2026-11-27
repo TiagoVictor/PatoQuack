@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Options;
 using PatoQuack.Server.Chat;
@@ -8,6 +9,8 @@ namespace PatoQuack.Server.Voice;
 /// <summary>
 /// Hub de sinalização. Não transporta áudio: só repassa offer, answer e ICE candidates
 /// entre clientes da mesma sala, e avisa quem entrou, saiu ou mutou.
+///
+/// Exige login (cookie do Identity): o nome exibido vem da conta, não do cliente.
 ///
 /// Protocolo (malha P2P):
 ///   1. Cliente chama JoinRoom e recebe a lista de quem já estava na sala.
@@ -22,6 +25,7 @@ namespace PatoQuack.Server.Voice;
 /// Chat de texto: SendChatMessage guarda (IChatStore) e repassa para a sala; GetChatHistory
 /// devolve páginas do histórico da própria sala; Typing avisa os outros que alguém digita.
 /// </summary>
+[Authorize]
 public sealed class VoiceHub(
     IRoomRegistry registry,
     IOptions<VoiceOptions> options,
@@ -35,10 +39,11 @@ public sealed class VoiceHub(
 
     private static string GroupName(string room) => $"room:{room}";
 
-    public async Task<JoinRoomResultDto> JoinRoom(string room, string name)
+    public async Task<JoinRoomResultDto> JoinRoom(string room)
     {
         var normalizedRoom = VoiceInput.NormalizeRoom(room);
-        var normalizedName = VoiceInput.NormalizeName(name);
+        var normalizedName = Context.User?.FindFirst(PatoQuack.Server.Auth.AppClaims.DisplayName)?.Value
+                             ?? throw new HubException("Sessão inválida. Entre de novo.");
         var self = new Participant(Context.ConnectionId, normalizedName, normalizedRoom);
 
         if (await registry.GetAsync(Context.ConnectionId) is not null)

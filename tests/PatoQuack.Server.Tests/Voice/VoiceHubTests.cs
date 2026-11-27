@@ -18,11 +18,11 @@ public sealed class VoiceHubTests(PatoQuackFactory factory)
     [Fact]
     public async Task Join_returns_existing_participants_and_notifies_others()
     {
-        var ana = await ConnectAsync();
-        var bia = await ConnectAsync();
+        var ana = await ConnectAsync("Ana");
+        var bia = await ConnectAsync("Bia");
 
-        var anaSees = await ana.JoinAsync(_room, "Ana");
-        var biaSees = await bia.JoinAsync(_room, "Bia");
+        var anaSees = await ana.JoinAsync(_room);
+        var biaSees = await bia.JoinAsync(_room);
 
         Assert.Empty(anaSees);
         var existing = Assert.Single(biaSees);
@@ -36,10 +36,10 @@ public sealed class VoiceHubTests(PatoQuackFactory factory)
     [Fact]
     public async Task Offer_answer_and_candidates_are_relayed_with_sender_id()
     {
-        var ana = await ConnectAsync();
-        var bia = await ConnectAsync();
-        await ana.JoinAsync(_room, "Ana");
-        await bia.JoinAsync(_room, "Bia");
+        var ana = await ConnectAsync("Ana");
+        var bia = await ConnectAsync("Bia");
+        await ana.JoinAsync(_room);
+        await bia.JoinAsync(_room);
 
         await bia.Connection.InvokeAsync("SendOffer", ana.Id, new SessionDescriptionDto("offer", "v=0 offer"));
         var offer = await ana.NextAsync("ReceiveOffer");
@@ -59,10 +59,10 @@ public sealed class VoiceHubTests(PatoQuackFactory factory)
     [Fact]
     public async Task Signaling_to_a_connection_in_another_room_is_rejected()
     {
-        var ana = await ConnectAsync();
-        var bia = await ConnectAsync();
-        await ana.JoinAsync(_room, "Ana");
-        await bia.JoinAsync(_room + "-x", "Bia");
+        var ana = await ConnectAsync("Ana");
+        var bia = await ConnectAsync("Bia");
+        await ana.JoinAsync(_room);
+        await bia.JoinAsync(_room + "-x");
 
         var ex = await Assert.ThrowsAsync<HubException>(() =>
             bia.Connection.InvokeAsync("SendOffer", ana.Id, new SessionDescriptionDto("offer", "v=0")));
@@ -73,9 +73,9 @@ public sealed class VoiceHubTests(PatoQuackFactory factory)
     [Fact]
     public async Task Signaling_without_joining_a_room_is_rejected()
     {
-        var ana = await ConnectAsync();
+        var ana = await ConnectAsync("Ana");
         var intruder = await ConnectAsync();
-        await ana.JoinAsync(_room, "Ana");
+        await ana.JoinAsync(_room);
 
         await Assert.ThrowsAsync<HubException>(() =>
             intruder.Connection.InvokeAsync("SendIceCandidate", ana.Id, new IceCandidateDto("x", "0", 0, null)));
@@ -86,35 +86,52 @@ public sealed class VoiceHubTests(PatoQuackFactory factory)
     {
         for (var i = 0; i < 8; i++)
         {
-            await (await ConnectAsync()).JoinAsync(_room, $"P{i}");
+            await (await ConnectAsync($"P{i}")).JoinAsync(_room);
         }
 
-        var ninth = await ConnectAsync();
-        var ex = await Assert.ThrowsAsync<HubException>(() => ninth.JoinAsync(_room, "P9"));
+        var ninth = await ConnectAsync("P9");
+        var ex = await Assert.ThrowsAsync<HubException>(() => ninth.JoinAsync(_room));
 
         Assert.Contains("cheia", ex.Message);
     }
 
     [Theory]
-    [InlineData("", "Ana")]
-    [InlineData("sala com espaço", "Ana")]
-    [InlineData("sala", "")]
-    [InlineData("sala", "um nome muito comprido que passa de trinta e dois")]
-    public async Task Invalid_input_is_rejected(string room, string name)
+    [InlineData("")]
+    [InlineData("sala com espaço")]
+    [InlineData("SALA/../x")]
+    public async Task Invalid_room_is_rejected(string room)
     {
+        // O nome não é mais validado aqui: vem da conta (validado no cadastro).
         var client = await ConnectAsync();
-        await Assert.ThrowsAsync<HubException>(() => client.JoinAsync(room, name));
+        await Assert.ThrowsAsync<HubException>(() => client.JoinAsync(room));
+    }
+
+    [Fact]
+    public async Task Hub_requires_login()
+    {
+        await Assert.ThrowsAnyAsync<Exception>(() => HubTestClient.ConnectWithCookieAsync(factory, cookie: null));
+        await Assert.ThrowsAnyAsync<Exception>(() => HubTestClient.ConnectWithCookieAsync(factory, "patoquack.auth=forjado"));
+    }
+
+    [Fact]
+    public async Task Display_name_comes_from_the_account()
+    {
+        var ana = await ConnectAsync("Ana Conta");
+        var bia = await ConnectAsync("Bia");
+        await ana.JoinAsync(_room);
+        var seen = await bia.JoinAsync(_room);
+        Assert.Equal("Ana Conta", Assert.Single(seen).Name);
     }
 
     [Fact]
     public async Task Leaving_and_disconnecting_notify_the_room()
     {
-        var ana = await ConnectAsync();
-        var bia = await ConnectAsync();
-        var caio = await ConnectAsync();
-        await ana.JoinAsync(_room, "Ana");
-        await bia.JoinAsync(_room, "Bia");
-        await caio.JoinAsync(_room, "Caio");
+        var ana = await ConnectAsync("Ana");
+        var bia = await ConnectAsync("Bia");
+        var caio = await ConnectAsync("Caio");
+        await ana.JoinAsync(_room);
+        await bia.JoinAsync(_room);
+        await caio.JoinAsync(_room);
 
         await bia.Connection.InvokeAsync("LeaveRoom");
         Assert.Equal(bia.Id, (await ana.NextAsync("UserLeft"))[0]);
@@ -127,10 +144,10 @@ public sealed class VoiceHubTests(PatoQuackFactory factory)
     [Fact]
     public async Task SetMuted_notifies_others()
     {
-        var ana = await ConnectAsync();
-        var bia = await ConnectAsync();
-        await ana.JoinAsync(_room, "Ana");
-        await bia.JoinAsync(_room, "Bia");
+        var ana = await ConnectAsync("Ana");
+        var bia = await ConnectAsync("Bia");
+        await ana.JoinAsync(_room);
+        await bia.JoinAsync(_room);
 
         await bia.Connection.InvokeAsync("SetMuted", true);
 
@@ -140,30 +157,30 @@ public sealed class VoiceHubTests(PatoQuackFactory factory)
     [Fact]
     public async Task StartStream_notifies_room_and_new_joiners_see_the_streamer()
     {
-        var ana = await ConnectAsync();
-        var bia = await ConnectAsync();
-        await ana.JoinAsync(_room, "Ana");
-        await bia.JoinAsync(_room, "Bia");
+        var ana = await ConnectAsync("Ana");
+        var bia = await ConnectAsync("Bia");
+        await ana.JoinAsync(_room);
+        await bia.JoinAsync(_room);
 
         await ana.Connection.InvokeAsync("StartStream");
 
         Assert.Equal([ana.Id, "Ana"], await bia.NextAsync("StreamStarted"));
         Assert.Equal([ana.Id, "Ana"], await ana.NextAsync("StreamStarted"));
 
-        var caio = await ConnectAsync();
-        var joined = await caio.JoinWithStreamAsync(_room, "Caio");
+        var caio = await ConnectAsync("Caio");
+        var joined = await caio.JoinWithStreamAsync(_room);
         Assert.Equal(new StreamerDto(ana.Id, "Ana"), joined.Streamer);
     }
 
     [Fact]
     public async Task Only_one_stream_per_room()
     {
-        var ana = await ConnectAsync();
-        var bia = await ConnectAsync();
-        var other = await ConnectAsync();
-        await ana.JoinAsync(_room, "Ana");
-        await bia.JoinAsync(_room, "Bia");
-        await other.JoinAsync(_room + "-x", "Outro");
+        var ana = await ConnectAsync("Ana");
+        var bia = await ConnectAsync("Bia");
+        var other = await ConnectAsync("Outro");
+        await ana.JoinAsync(_room);
+        await bia.JoinAsync(_room);
+        await other.JoinAsync(_room + "-x");
 
         await ana.Connection.InvokeAsync("StartStream");
         var ex = await Assert.ThrowsAsync<HubException>(() => bia.Connection.InvokeAsync("StartStream"));
@@ -183,10 +200,10 @@ public sealed class VoiceHubTests(PatoQuackFactory factory)
     [Fact]
     public async Task StopStream_notifies_room_and_frees_the_slot()
     {
-        var ana = await ConnectAsync();
-        var bia = await ConnectAsync();
-        await ana.JoinAsync(_room, "Ana");
-        await bia.JoinAsync(_room, "Bia");
+        var ana = await ConnectAsync("Ana");
+        var bia = await ConnectAsync("Bia");
+        await ana.JoinAsync(_room);
+        await bia.JoinAsync(_room);
 
         await ana.Connection.InvokeAsync("StartStream");
         Assert.Equal([ana.Id, "Ana"], await ana.NextAsync("StreamStarted"));
@@ -198,17 +215,17 @@ public sealed class VoiceHubTests(PatoQuackFactory factory)
 
         // Parar sem estar transmitindo não avisa ninguém.
         await ana.Connection.InvokeAsync("StopStream");
-        var caio = await ConnectAsync();
-        Assert.Equal(bia.Id, (await caio.JoinWithStreamAsync(_room, "Caio")).Streamer?.ConnectionId);
+        var caio = await ConnectAsync("Caio");
+        Assert.Equal(bia.Id, (await caio.JoinWithStreamAsync(_room)).Streamer?.ConnectionId);
     }
 
     [Fact]
     public async Task Leaving_or_disconnecting_ends_the_stream()
     {
-        var ana = await ConnectAsync();
-        var bia = await ConnectAsync();
-        await ana.JoinAsync(_room, "Ana");
-        await bia.JoinAsync(_room, "Bia");
+        var ana = await ConnectAsync("Ana");
+        var bia = await ConnectAsync("Bia");
+        await ana.JoinAsync(_room);
+        await bia.JoinAsync(_room);
 
         await ana.Connection.InvokeAsync("StartStream");
         await ana.Connection.InvokeAsync("LeaveRoom");
@@ -216,26 +233,26 @@ public sealed class VoiceHubTests(PatoQuackFactory factory)
 
         await bia.Connection.InvokeAsync("StartStream");
         var biaId = bia.Id;
-        var caio = await ConnectAsync();
-        await caio.JoinAsync(_room, "Caio");
+        var caio = await ConnectAsync("Caio");
+        await caio.JoinAsync(_room);
         await bia.Connection.StopAsync();
         Assert.Equal([biaId], await caio.NextAsync("StreamStopped"));
 
-        var dani = await ConnectAsync();
-        Assert.Null((await dani.JoinWithStreamAsync(_room, "Dani")).Streamer);
+        var dani = await ConnectAsync("Dani");
+        Assert.Null((await dani.JoinWithStreamAsync(_room)).Streamer);
     }
 
     [Fact]
     public async Task WatchStream_is_relayed_only_to_the_streamer_of_the_same_room()
     {
-        var ana = await ConnectAsync();
-        var bia = await ConnectAsync();
-        var caio = await ConnectAsync();
-        var outsider = await ConnectAsync();
-        await ana.JoinAsync(_room, "Ana");
-        await bia.JoinAsync(_room, "Bia");
-        await caio.JoinAsync(_room, "Caio");
-        await outsider.JoinAsync(_room + "-x", "Outro");
+        var ana = await ConnectAsync("Ana");
+        var bia = await ConnectAsync("Bia");
+        var caio = await ConnectAsync("Caio");
+        var outsider = await ConnectAsync("Outro");
+        await ana.JoinAsync(_room);
+        await bia.JoinAsync(_room);
+        await caio.JoinAsync(_room);
+        await outsider.JoinAsync(_room + "-x");
 
         await ana.Connection.InvokeAsync("StartStream");
         await bia.Connection.InvokeAsync("WatchStream", true);
@@ -253,8 +270,8 @@ public sealed class VoiceHubTests(PatoQuackFactory factory)
     [Fact]
     public async Task WatchStream_without_stream_is_ignored_and_without_room_is_rejected()
     {
-        var ana = await ConnectAsync();
-        await ana.JoinAsync(_room, "Ana");
+        var ana = await ConnectAsync("Ana");
+        await ana.JoinAsync(_room);
         await ana.Connection.InvokeAsync("WatchStream", true); // ninguém transmite: não faz nada
 
         var lone = await ConnectAsync();
@@ -263,9 +280,9 @@ public sealed class VoiceHubTests(PatoQuackFactory factory)
 
     // ---- infraestrutura --------------------------------------------------
 
-    private async Task<HubTestClient> ConnectAsync()
+    private async Task<HubTestClient> ConnectAsync(string? name = null)
     {
-        var client = await HubTestClient.ConnectAsync(factory);
+        var client = await HubTestClient.ConnectAsync(factory, name);
         _clients.Add(client);
         return client;
     }

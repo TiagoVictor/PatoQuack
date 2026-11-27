@@ -107,16 +107,16 @@
         <span class="tag">voz</span>
       </header>
       <form id="join-form" autocomplete="on">
-        <label>
-          Seu nome
-          <input id="name" name="name" maxlength="32" required autocomplete="nickname" placeholder="Ex.: Tiago">
-        </label>
+        <div class="join-account">
+          <span>Entrando como <strong id="me-name">…</strong></span>
+          <button type="button" id="logout-btn" class="link-btn">Sair da conta</button>
+        </div>
         <label>
           Sala
           <input id="room" name="room" maxlength="32" required pattern="[A-Za-z0-9_\-]+"
                  title="Letras, números, - ou _" placeholder="geral">
         </label>
-        <button type="submit" id="join-btn" class="primary">Entrar na voz</button>
+        <button type="submit" id="join-btn" class="primary" disabled>Entrar na voz</button>
       </form>
       <p id="status" class="status" role="status" data-level="info"></p>
     </section>
@@ -405,7 +405,10 @@
 
     <div id="menu-more" class="menu" popover role="dialog" aria-label="Mais opções" data-anchor="bar-more">
       <button type="button" id="menu-invite" class="menu-item">
-        <svg class="icon" aria-hidden="true"><use href="#i-link"/></svg>Copiar link de convite
+        <svg class="icon" aria-hidden="true"><use href="#i-link"/></svg>Convidar pessoa (link de uso único)
+      </button>
+      <button type="button" id="menu-logout" class="menu-item">
+        <svg class="icon" aria-hidden="true"><use href="#i-leave"/></svg>Sair da conta
       </button>
       <hr class="menu-sep">
       <label class="menu-check">
