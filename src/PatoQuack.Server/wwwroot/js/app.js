@@ -1,6 +1,6 @@
 // Orquestra a UI: microfone, sinalização, sessão de voz, lista de participantes e palco.
 
-import { createInvite, getAuthState, logout as apiLogout } from './api.js';
+import { getAuthState, logout as apiLogout } from './api.js';
 import { AUDIO_CONSTRAINTS, HUB_URL, ICE_SERVERS } from './config.js';
 import {
   fillDeviceSelect, isMissingDevice, onDeviceChange, saveDevice, savedDevice, withDevice,
@@ -17,6 +17,7 @@ import { VoiceSignaling } from './signaling.js';
 import { SpeakingDetector } from './speaking.js';
 import { createStatsPanel } from './stats.js';
 import { createChat } from './chat.js';
+import { createServersUi } from './servers-ui.js';
 
 const LOCAL_ID = 'local';
 /** Chave do bloco da transmissão no palco (os demais blocos usam o id do participante). */
@@ -47,14 +48,8 @@ const STREAM_KINDS = {
 const $ = (id) => document.getElementById(id);
 const ui = {
   joinView: $('join-view'),
-  joinForm: $('join-form'),
-  joinBtn: $('join-btn'),
-  meName: $('me-name'),
-  logoutBtn: $('logout-btn'),
   menuLogout: $('menu-logout'),
-  room: $('room'),
   roomView: $('room-view'),
-  roomName: $('room-name'),
   callTimer: $('call-timer'),
   count: $('count'),
   list: $('participants'),
@@ -179,14 +174,18 @@ const preview = new VideoPreview({
 /** Cartão de prévia de quem transmite (criado no fim do módulo, depois do DOM pronto). */
 let hoverCard = null;
 const narrowScreen = window.matchMedia('(max-width: 720px)');
-/** Largura em que o chat é uma coluna própria (abaixo disso ele cobre o palco). */
-const wideScreen = window.matchMedia('(min-width: 1101px)');
 
 const state = {
   inRoom: false,
   /** Estado da voz exibido no painel. @type {'connecting' | 'connected' | 'reconnecting'} */
   voice: 'connecting',
+  /** Canal de voz da chamada (id como texto, chave da sala no servidor) e nome dele. */
   room: '',
+  channelName: '',
+  /** Entrando num canal (botões de canal ficam desabilitados). */
+  joining: false,
+  /** Chat aberto no palco (os blocos viram miniaturas no topo). */
+  chatMode: false,
   name: '',
   muted: false,
   /** @type {MediaStream | null} */ localStream: null,
@@ -297,6 +296,7 @@ function errorMessage(err) {
 
 function startTimer() {
   stopTimer();
+  ui.callTimer.hidden = false;
   state.joinedAt = Date.now();
   tickTimer();
   state.timer = setInterval(tickTimer, 1000);
@@ -306,6 +306,7 @@ function stopTimer() {
   clearInterval(state.timer);
   state.timer = undefined;
   ui.callTimer.textContent = '';
+  ui.callTimer.hidden = true;
 }
 
 function tickTimer() {
@@ -569,11 +570,12 @@ function renderList() {
 /** Painéis da barra lateral: transmissão, voz (botões) e usuário. */
 function renderDock() {
   const n = state.participants.size;
-  ui.count.textContent = `${state.room} · ${n} ${n === 1 ? 'pessoa' : 'pessoas'}`;
+  ui.count.textContent = `${state.channelName} · ${n} ${n === 1 ? 'pessoa' : 'pessoas'}`;
 
   paintAvatar(ui.selfAvatar, state.name || '?');
   ui.selfName.textContent = state.name;
-  ui.selfState.textContent = state.deafened ? 'Áudio desativado' : state.muted ? 'Mutado' : 'Microfone aberto';
+  ui.selfState.textContent = !state.inRoom ? 'Fora da chamada'
+    : state.deafened ? 'Áudio desativado' : state.muted ? 'Mutado' : 'Microfone aberto';
   for (const btn of muteButtons) {
     btn.setAttribute('aria-pressed', String(state.muted));
     btn.title = state.muted ? 'Desmutar' : 'Mutar';
@@ -675,8 +677,9 @@ function renderStage() {
     tile.title = focused ? 'Voltar para a grade' : 'Ampliar';
   }
 
-  const gridKeys = state.focus !== null ? [state.focus] : keys;
-  const stripKeys = state.focus !== null ? keys.filter((k) => k !== state.focus) : [];
+  // Modo chat: o chat ocupa o palco e todos os blocos viram miniaturas no topo.
+  const gridKeys = state.chatMode ? [] : state.focus !== null ? [state.focus] : keys;
+  const stripKeys = state.chatMode ? keys : state.focus !== null ? keys.filter((k) => k !== state.focus) : [];
   place(ui.stageGrid, gridKeys.map((k) => tiles.get(k)));
   place(ui.stageStrip, stripKeys.map((k) => tiles.get(k)));
   ui.stageStrip.hidden = stripKeys.length === 0;
@@ -685,7 +688,7 @@ function renderStage() {
   ui.stageGrid.style.setProperty('--cols', String(cols));
   ui.stageGrid.style.setProperty('--rows', String(rows));
   ui.stageGrid.dataset.layout = state.focus !== null ? 'focus' : 'grid';
-  ui.stageEmpty.hidden = keys.length > 0 || !state.inRoom;
+  ui.stageEmpty.hidden = keys.length > 0 || !state.inRoom || state.chatMode;
   hoverCard?.refresh(); // o botão "Assistir" do cartão depende do bloco em destaque
 }
 
@@ -710,7 +713,13 @@ function createTile(key, className) {
       setWatching(true);
       return;
     }
-    state.focus = state.focus === key ? null : key;
+    // Com o chat aberto, clicar numa miniatura amplia o bloco e recolhe o chat.
+    if (state.chatMode) {
+      setChatOpen(false, { render: false });
+      state.focus = key;
+    } else {
+      state.focus = state.focus === key ? null : key;
+    }
     renderStage();
   });
   return tile;
@@ -844,6 +853,7 @@ function watchStream() {
   hoverCard.hide();
   if (!state.streamer) return;
   setWatching(true);
+  if (state.chatMode) setChatOpen(false, { render: false });
   state.focus = STREAM_KEY;
   renderStage();
   const tile = tiles.get(STREAM_KEY);
@@ -1180,6 +1190,13 @@ signaling.setHandlers({
   chatMessage(message) {
     if (state.inRoom) chat.onMessage(message);
   },
+  /** O servidor nos tirou da chamada (saímos do servidor, ele foi apagado…). */
+  kicked(reason) {
+    leave({ notifyServer: false, quiet: true }).then(async () => {
+      setStatus(reason, 'warn');
+      try { await serversUi.load(); } catch { /* a lista atualiza no próximo carregamento */ }
+    });
+  },
   userTyping(id) {
     if (state.inRoom) chat.onTyping(id);
   },
@@ -1274,7 +1291,7 @@ async function enterRoom() {
   log(`Codec de vídeo: ${state.videoCodec.reason}`);
   state.session = createSession();
 
-  const { participants: existing, streamer } = await signaling.joinRoom(state.room);
+  const { participants: existing, streamer } = await signaling.joinRoom(Number(state.room));
   // StreamStarted pode ter chegado antes da resposta; a resposta é o retrato no momento da entrada.
   if (streamer && !state.streamer) setStreamer({ id: streamer.connectionId, name: streamer.name });
   for (const p of existing) {
@@ -1286,17 +1303,17 @@ async function enterRoom() {
   await state.session.connectTo(existing.map((p) => p.connectionId));
 
   setVoiceState('connected');
-  chat.start(state.room); // histórico da sala (não segura a entrada: erros aparecem no chat)
+  chat.start(state.channelName); // histórico do canal (não segura a entrada: erros aparecem no chat)
   setStatus(existing.length === 0
-    ? `Você está na sala "${state.room}". Aguardando mais alguém…`
-    : `Você está na sala "${state.room}" com ${existing.length} ${existing.length === 1 ? 'pessoa' : 'pessoas'}.`);
+    ? `Você está em ${state.channelName}. Aguardando mais alguém…`
+    : `Você está em ${state.channelName} com ${existing.length} ${existing.length === 1 ? 'pessoa' : 'pessoas'}.`);
 }
 
-async function join(event) {
-  event.preventDefault();
+/** Clique num canal de voz: entra na chamada (saindo antes de outro canal, se estiver em um). */
+async function join(server, channel) {
   const name = state.name; // vem da conta (o servidor também usa a da sessão)
-  const room = ui.room.value.trim().toLowerCase();
-  if (!name || !room) return;
+  if (!name || !channel || state.joining) return;
+  if (state.inRoom) await leave({ quiet: true });
 
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
     setStatus('O microfone só funciona em HTTPS ou em http://localhost. Abra a página por um desses endereços.', 'error');
@@ -1308,14 +1325,14 @@ async function join(event) {
   const audioContext = new AudioContext();
   audioContext.resume().catch(() => {});
 
-  setBusy(true);
+  setJoining(true);
   setStatus('Pedindo acesso ao microfone…');
 
   try {
     state.localStream = await captureMic();
     watchMicEnded(state.localStream);
   } catch (err) {
-    setBusy(false);
+    setJoining(false);
     audioContext.close().catch(() => {});
     const reason = err?.name === 'NotAllowedError'
       ? 'permissão negada. Libere o microfone nas configurações do site.'
@@ -1325,47 +1342,63 @@ async function join(event) {
   }
 
   state.audioContext = audioContext;
-  setBusy(false);
   state.speaking = new SpeakingDetector(state.audioContext, (id, speaking) => {
     if (state.participants.has(id)) upsertParticipant(id, { speaking });
   });
 
   state.name = name;
-  state.room = room;
+  state.room = String(channel.id);
+  state.channelName = channel.name;
   state.muted = false;
   state.focus = null;
   state.inRoom = true;
-  remember();
 
   upsertParticipant(LOCAL_ID, { name, muted: false, conn: 'local' });
   state.speaking.watch(LOCAL_ID, state.localStream);
 
-  ui.roomName.textContent = room;
-  ui.channelTitle.textContent = room;
+  ui.channelTitle.textContent = channel.name;
   ui.roomAlert.hidden = true;
+  ui.roomView.classList.remove('idle');
   setVoiceState('connecting');
   startTimer();
-  ui.joinView.hidden = true;
-  ui.roomView.hidden = false;
+  renderChannels();
 
   try {
     setStatus('Conectando ao servidor…');
     if (!signaling.isConnected) await signaling.start();
     await enterRoom();
+    setJoining(false);
   } catch (err) {
+    setJoining(false);
     // Sessão vencida (o hub exige login): volta para a tela de entrar.
     if (/\b401\b|Unauthorized/.test(String(err?.message ?? err))) {
-      location.replace(`/auth.html?modo=entrar&sala=${encodeURIComponent(room)}`);
+      location.replace(`/auth.html?modo=entrar&servidor=${server.id}`);
       return;
     }
-    setStatus(`Não foi possível entrar: ${errorMessage(err)}`, 'error');
-    await leave({ notifyServer: false });
+    const message = `Não foi possível entrar: ${errorMessage(err)}`;
+    await leave({ notifyServer: false, quiet: true });
+    setStatus(message, 'error');
   }
 }
 
-function setBusy(busy) {
-  ui.joinBtn.disabled = busy;
-  ui.joinBtn.textContent = busy ? 'Entrando…' : 'Entrar na voz';
+function setJoining(joining) {
+  state.joining = joining;
+  renderChannels();
+}
+
+/** Lista de canais + cronômetro e participantes debaixo do canal da chamada. */
+function renderChannels() {
+  serversUi?.renderChannels();
+}
+
+function placeChannelExtras() {
+  const li = state.inRoom ? document.querySelector(`#channel-list li[data-channel-id="${state.room}"]`) : null;
+  if (li) {
+    li.querySelector('.channel-btn')?.append(ui.callTimer);
+    li.append(ui.list);
+  } else {
+    document.querySelector('.channels').append(ui.callTimer, ui.list);
+  }
 }
 
 function resetSession() {
@@ -1381,12 +1414,13 @@ function resetSession() {
   render();
 }
 
-async function leave({ notifyServer = true } = {}) {
+async function leave({ notifyServer = true, quiet = false } = {}) {
   const wasInRoom = state.inRoom;
   state.inRoom = false;
   preview.cancel(); // prévia aberta: encerra a captura sem transmitir
   stats.hide();
   chat.reset();
+  setChatOpen(false); // a próxima chamada começa em grade
   closeAllMenus();
   stopLevelMeter();
   state.deafened = false;
@@ -1415,10 +1449,12 @@ async function leave({ notifyServer = true } = {}) {
     } catch { /* já saiu */ }
   }
 
-  ui.roomView.hidden = true;
-  ui.joinView.hidden = false;
-  setBusy(false);
-  if (wasInRoom && notifyServer) setStatus('Você saiu da sala.');
+  // Fora da chamada: continua no servidor, com a lista de canais.
+  state.room = '';
+  ui.roomView.classList.add('idle');
+  ui.channelTitle.textContent = serversUi?.current?.name ?? '';
+  renderChannels();
+  if (wasInRoom && notifyServer && !quiet) setStatus('Você saiu do canal.');
 }
 
 /** Botão de mute. Com o áudio desativado, desmutar também reativa o áudio (como no Discord). */
@@ -1637,6 +1673,7 @@ async function refreshCameraList() {
 }
 
 function setGridView(grid) {
+  if (state.chatMode) setChatOpen(false, { render: false });
   if (grid) {
     state.focus = null;
   } else {
@@ -1655,22 +1692,10 @@ function setShowNonVideo(show) {
   ui.optGrid.checked = state.focus === null;
 }
 
-/** Gera um convite de cadastro (uso único, 7 dias) que já leva à sala atual. */
-async function copyInvite() {
+/** ⋯ → Convidar pessoas: abre a janela de convite do servidor atual. */
+function copyInvite() {
   closeAllMenus();
-  let invite;
-  try {
-    invite = await createInvite(state.room);
-  } catch (err) {
-    setStatus(`Não foi possível criar o convite: ${err.message}`, 'error');
-    return;
-  }
-  try {
-    await navigator.clipboard.writeText(invite.url);
-    setStatus('Convite copiado: vale 7 dias, para 1 pessoa.');
-  } catch {
-    setStatus(`Não foi possível copiar automaticamente. Convite (7 dias, 1 pessoa): ${invite.url}`, 'warn');
-  }
+  serversUi.openInvite();
 }
 
 async function signOut() {
@@ -1773,22 +1798,8 @@ function readNumberPref(key, fallback) {
   }
 }
 
-function remember() {
-  try { localStorage.setItem('voz.room', state.room); } catch { /* storage indisponível */ }
-}
-
-function restore() {
-  const params = new URLSearchParams(location.search);
-  try {
-    ui.room.value = params.get('sala') ?? localStorage.getItem('voz.room') ?? 'geral';
-  } catch {
-    ui.room.value = params.get('sala') ?? 'geral';
-  }
-}
-
 /** Sem sessão, vai para a tela de conta (preservando a sala do link). */
 async function boot() {
-  restore();
   let auth;
   try {
     auth = await getAuthState();
@@ -1796,19 +1807,41 @@ async function boot() {
     setStatus(err.message, 'error');
     return;
   }
+  const params = new URLSearchParams(location.search);
   if (!auth.user) {
     const q = new URLSearchParams({ modo: auth.setupRequired ? 'configurar' : 'entrar' });
-    const room = new URLSearchParams(location.search).get('sala');
-    if (room) q.set('sala', room);
+    if (params.get('servidor')) q.set('servidor', params.get('servidor'));
     location.replace(`/auth.html?${q}`);
     return;
   }
   state.name = auth.user.displayName;
-  ui.meName.textContent = auth.user.displayName;
-  ui.joinBtn.disabled = false;
+  renderDock();
+  ui.joinView.hidden = true;
+  ui.roomView.hidden = false;
+  let saved = null;
+  try { saved = localStorage.getItem('voz.server'); } catch { /* sem storage */ }
+  try {
+    await serversUi.load(params.get('servidor') ?? saved);
+  } catch (err) {
+    setStatus(`Não foi possível carregar seus servidores: ${errorMessage(err)}`, 'error');
+  }
 }
 
-ui.joinForm.onsubmit = join; // substitui o handler de segurança do index.html
+/** Servidor escolhido na barra (a chamada, se houver, continua no canal dela). */
+function onSelectServer(server) {
+  ui.roomView.classList.toggle('no-servers', !server);
+  if (!state.inRoom) ui.channelTitle.textContent = server?.name ?? '';
+}
+
+const serversUi = createServersUi({
+  onSelect: onSelectServer,
+  onJoinChannel: (server, channel) => join(server, channel),
+  activeChannelId: () => (state.inRoom ? Number(state.room) : null),
+  joining: () => state.joining,
+  paintAvatar,
+  onStatus: (message, level) => setStatus(message, level),
+  afterChannels: placeChannelExtras,
+});
 for (const btn of muteButtons) btn.addEventListener('click', toggleMute);
 for (const btn of [ui.leaveBtn, ui.barLeave]) btn.addEventListener('click', () => leave());
 for (const kind of ['camera', 'screen']) {
@@ -1918,27 +1951,29 @@ function renderChatUnread(count) {
   ui.chatToggle.setAttribute('aria-label', count ? `Chat (${count} não lidas)` : 'Chat');
 }
 
-/** Abre/fecha o chat. Na tela larga a escolha fica salva; nas menores ele começa fechado. */
-function setChatOpen(open, { save = false, focus = false } = {}) {
-  ui.roomView.classList.toggle('chat-open', open);
+/**
+ * Abre/fecha o chat no palco. Aberto: ocupa o lugar da grade e os blocos viram miniaturas no
+ * topo (o bloco ampliado volta para a faixa). Fechado: volta para a grade.
+ */
+function setChatOpen(open, { focus = false, render = true } = {}) {
+  state.chatMode = open;
+  if (open) state.focus = null;
+  ui.main.classList.toggle('chat-mode', open);
   ui.chatToggle.setAttribute('aria-expanded', String(open));
   ui.chatToggle.title = open ? 'Fechar chat' : 'Abrir chat';
+  // Primeiro o palco (a faixa de miniaturas muda a altura do chat), depois o chat rola até o fim.
+  if (render) renderStage();
   chat.setOpen(open);
-  if (save && wideScreen.matches) writePref('voz.chatOpen', open);
   if (open && focus) chat.focusInput();
   if (!open && focus) ui.chatToggle.focus({ preventScroll: true });
 }
-const chatIsOpen = () => ui.roomView.classList.contains('chat-open');
 
-setChatOpen(wideScreen.matches && readPref('voz.chatOpen', true));
-// Ficou estreito: o chat viraria painel por cima do palco (cobrindo a barra de controles), então
-// fecha. Voltou a ficar largo: reabre conforme a preferência. A preferência salva não muda.
-wideScreen.addEventListener('change', () => setChatOpen(wideScreen.matches && readPref('voz.chatOpen', true)));
-ui.chatToggle.addEventListener('click', () => setChatOpen(!chatIsOpen(), { save: true, focus: true }));
-ui.chatClose.addEventListener('click', () => setChatOpen(false, { save: true, focus: true }));
+setChatOpen(false);
+ui.chatToggle.addEventListener('click', () => setChatOpen(!state.chatMode, { focus: true }));
+ui.chatClose.addEventListener('click', () => setChatOpen(false, { focus: true }));
 $('chat-panel').addEventListener('keydown', (e) => {
-  // Esc dentro do chat: fecha quando ele cobre o palco (telas menores).
-  if (e.key === 'Escape' && !wideScreen.matches) setChatOpen(false, { focus: true });
+  // Esc dentro do chat recolhe o chat (volta para a grade).
+  if (e.key === 'Escape') setChatOpen(false, { focus: true });
 });
 
 ui.optChatSound.addEventListener('change', () => {
@@ -1972,7 +2007,7 @@ onDeviceChange(() => {
 });
 window.addEventListener('pagehide', () => { if (state.inRoom) signaling.stop(); });
 
-ui.logoutBtn.addEventListener('click', signOut);
 ui.menuLogout.addEventListener('click', signOut);
+$('no-server-logout').addEventListener('click', signOut);
 boot();
 render();

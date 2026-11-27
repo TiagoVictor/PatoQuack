@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using PatoQuack.Server.Auth;
 using PatoQuack.Server.Data;
+using PatoQuack.Server.Servers;
 
 namespace PatoQuack.Server.Tests.Auth;
 
@@ -41,15 +42,16 @@ public sealed class AuthEndpointsTests(PatoQuackFactory factory) : IClassFixture
     public async Task Invite_register_confirm_and_login()
     {
         using var inviter = await LoggedInAsync("Ana");
-        var invite = await (await inviter.PostAsJsonAsync("/api/invites", new { room = "geral" })).Content.ReadFromJsonAsync<InviteDto>(Json);
-        Assert.Contains("modo=cadastro", invite!.Url);
+        var (serverId, invite) = await ServerWithInviteAsync(inviter, maxUses: 1);
+        Assert.Contains("modo=convite", invite.Url);
         Assert.Contains($"convite={invite.Code}", invite.Url);
-        Assert.Equal("geral", invite.Room);
 
         using var anon = factory.CreateApiClient();
         var info = await anon.GetFromJsonAsync<InviteInfoDto>($"/api/invites/{invite.Code}", Json);
         Assert.True(info!.Valid);
         Assert.Equal("Ana", info.InviterName);
+        Assert.Equal("Grupo", info.ServerName);
+        Assert.Equal(1, info.MemberCount);
         Assert.False((await anon.GetFromJsonAsync<InviteInfoDto>("/api/invites/nao-existe", Json))!.Valid);
 
         var email = $"{Guid.NewGuid():N}@teste.local";
@@ -57,7 +59,7 @@ public sealed class AuthEndpointsTests(PatoQuackFactory factory) : IClassFixture
 
         var registered = await Register(anon, invite.Code, email, "Bia");
         Assert.Equal(HttpStatusCode.OK, registered.StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, (await Register(anon, invite.Code, $"{Guid.NewGuid():N}@teste.local")).StatusCode); // já usado
+        Assert.Equal(HttpStatusCode.BadRequest, (await Register(anon, invite.Code, $"{Guid.NewGuid():N}@teste.local")).StatusCode); // 1 uso: esgotado
 
         // Antes de confirmar: senha certa, mas não entra.
         var early = await anon.PostAsJsonAsync("/api/auth/login", new { email, password = PatoQuackFactory.Password });
@@ -67,7 +69,7 @@ public sealed class AuthEndpointsTests(PatoQuackFactory factory) : IClassFixture
         Assert.Equal(HttpStatusCode.OK, (await anon.PostAsJsonAsync("/api/auth/resend-confirmation", new { email })).StatusCode);
         var link = await MailLinkAsync(email);
         Assert.Contains("modo=confirmar", link);
-        Assert.Contains("sala=geral", link);
+        Assert.Contains($"servidor={serverId}", link);
         var q = QueryHelpers.ParseQuery(new Uri(link).Query);
         Assert.Equal(HttpStatusCode.BadRequest, (await anon.PostAsJsonAsync("/api/auth/confirm", new { userId = q["uid"].ToString(), token = "forjado" })).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await anon.PostAsJsonAsync("/api/auth/confirm", new { userId = q["uid"].ToString(), token = q["token"].ToString() })).StatusCode);
@@ -77,6 +79,9 @@ public sealed class AuthEndpointsTests(PatoQuackFactory factory) : IClassFixture
         var state = await anon.GetFromJsonAsync<AuthStateDto>("/api/auth/state", Json);
         Assert.Equal("Bia", state!.User!.DisplayName);
         Assert.False(state.User.IsAdmin);
+        // O cadastro pelo convite já colocou a Bia no servidor.
+        var servers = await anon.GetFromJsonAsync<List<ServerDto>>("/api/servers", Json);
+        Assert.Equal(serverId, Assert.Single(servers!).Id);
 
         Assert.Equal(HttpStatusCode.OK, (await anon.PostAsync("/api/auth/logout", null)).StatusCode);
         Assert.Null((await anon.GetFromJsonAsync<AuthStateDto>("/api/auth/state", Json))!.User);
@@ -86,7 +91,7 @@ public sealed class AuthEndpointsTests(PatoQuackFactory factory) : IClassFixture
     public async Task Expired_invite_and_weak_password_are_rejected()
     {
         using var inviter = await LoggedInAsync("Ana");
-        var invite = await (await inviter.PostAsJsonAsync("/api/invites", new { })).Content.ReadFromJsonAsync<InviteDto>(Json);
+        var (_, invite) = await ServerWithInviteAsync(inviter, maxUses: 1);
         using var anon = factory.CreateApiClient();
 
         // Senha fraca: recusa e o convite continua valendo.
@@ -99,7 +104,7 @@ public sealed class AuthEndpointsTests(PatoQuackFactory factory) : IClassFixture
         using (var scope = factory.Services.CreateScope())
         {
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            await db.SignupInvites.Where(i => i.Code == invite.Code)
+            await db.ServerInvites.Where(i => i.Code == invite.Code)
                 .ExecuteUpdateAsync(s => s.SetProperty(i => i.ExpiresAt, DateTimeOffset.UtcNow.AddMinutes(-1)));
         }
 
@@ -153,7 +158,7 @@ public sealed class AuthEndpointsTests(PatoQuackFactory factory) : IClassFixture
     }
 
     [Fact]
-    public async Task Changes_require_the_csrf_header_and_invites_require_login()
+    public async Task Changes_require_the_csrf_header_and_servers_require_login()
     {
         var user = await factory.CreateUserAsync("Fê");
         using var plain = factory.CreateClient(); // sem o cabeçalho X-PatoQuack
@@ -161,10 +166,19 @@ public sealed class AuthEndpointsTests(PatoQuackFactory factory) : IClassFixture
         Assert.Equal(HttpStatusCode.BadRequest, forged.StatusCode);
 
         using var anon = factory.CreateApiClient();
-        Assert.Equal(HttpStatusCode.Unauthorized, (await anon.PostAsJsonAsync("/api/invites", new { })).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anon.PostAsJsonAsync("/api/servers", new { name = "x" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anon.GetAsync("/api/servers")).StatusCode);
     }
 
     // ---- apoio ----------------------------------------------------------------
+
+    private static async Task<(int ServerId, ServerInviteDto Invite)> ServerWithInviteAsync(HttpClient owner, int? maxUses)
+    {
+        var server = await (await owner.PostAsJsonAsync("/api/servers", new { name = "Grupo" })).Content.ReadFromJsonAsync<ServerDto>(Json);
+        var invite = await (await owner.PostAsJsonAsync($"/api/servers/{server!.Id}/invites", new { expiresInDays = 7, maxUses }))
+            .Content.ReadFromJsonAsync<ServerInviteDto>(Json);
+        return (server.Id, invite!);
+    }
 
     private async Task<HttpClient> LoggedInAsync(string name)
     {

@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using PatoQuack.Server.Data;
+using ServerEntity = PatoQuack.Server.Data.Server; // "Server" colide com o namespace
 
 namespace PatoQuack.Server.Tests;
 
@@ -36,6 +37,30 @@ public sealed class PatoQuackFactory : WebApplicationFactory<Program>
         var result = await users.CreateAsync(user, Password);
         Assert.True(result.Succeeded, string.Join("; ", result.Errors.Select(e => e.Description)));
         return user;
+    }
+
+    /// <summary>Cria um servidor (com o canal de voz "Geral") cujo dono é a conta indicada.</summary>
+    public async Task<(int ServerId, int ChannelId)> CreateServerAsync(string ownerId, string name = "Teste")
+    {
+        using var scope = Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var server = new ServerEntity
+        {
+            Name = name, OwnerId = ownerId, CreatedAt = DateTimeOffset.UtcNow,
+            Members = [new ServerMember { UserId = ownerId, Role = ServerRole.Owner, JoinedAt = DateTimeOffset.UtcNow }],
+            Channels = [new Channel { Name = "Geral", Kind = ChannelKind.Voice }],
+        };
+        db.Servers.Add(server);
+        await db.SaveChangesAsync();
+        return (server.Id, server.Channels[0].Id);
+    }
+
+    public async Task AddMemberAsync(int serverId, string userId)
+    {
+        using var scope = Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.ServerMembers.Add(new ServerMember { ServerId = serverId, UserId = userId, Role = ServerRole.Member, JoinedAt = DateTimeOffset.UtcNow });
+        await db.SaveChangesAsync();
     }
 
     /// <summary>Cliente HTTP que guarda cookies e manda o cabeçalho anti-CSRF.</summary>

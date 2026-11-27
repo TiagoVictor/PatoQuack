@@ -122,12 +122,100 @@ label { display: grid; gap: 6px; font-size: .85rem; color: var(--muted); font-we
   height: 100vh;
   height: 100dvh;
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
+  grid-template-columns: 72px 300px minmax(0, 1fr);
   position: relative;
 }
-/* Chat aberto em tela larga: terceira coluna. Mais estreito: painel sobre o palco (abaixo). */
-.room.chat-open { grid-template-columns: 300px minmax(0, 1fr) 340px; }
-.room:not(.chat-open) .chat { display: none; }
+
+
+/* ---- barra de servidores --------------------------------------------------- */
+
+.rail {
+  display: flex; flex-direction: column; align-items: center; gap: 8px; min-height: 0;
+  padding: 12px 0; background: #1e1f22; overflow-y: auto;
+}
+.rail-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.rail-btn {
+  position: relative; width: 48px; height: 48px; padding: 0; border-radius: 50%;
+  display: grid; place-items: center; font-size: 1rem; font-weight: 700; color: #fff;
+  background: var(--card-2); transition: border-radius .15s ease, background .15s ease;
+}
+.rail-btn:hover, .rail-btn[aria-current="true"] { border-radius: 16px; filter: none; }
+.rail-btn[aria-current="true"]::before {
+  content: ""; position: absolute; left: -12px; top: 8px; bottom: 8px; width: 4px;
+  border-radius: 0 4px 4px 0; background: #fff;
+}
+.rail-add { color: var(--ok); font-size: 1.6rem; font-weight: 400; }
+.rail-add:hover { background: var(--ok); color: #fff; }
+
+/* Cabeçalho da barra lateral: nome do servidor com menu. */
+.server-menu-btn {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 100%;
+  padding: 0; border-radius: 0; background: transparent; color: var(--text); font-size: 1rem;
+}
+.server-menu-btn:hover { filter: none; background: var(--hover); }
+.server-menu-btn .icon { width: 18px; height: 18px; margin-left: auto; color: var(--muted); }
+.server-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Lista de canais: o canal da chamada fica destacado, com cronômetro e participantes. */
+.channel-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.channel-btn {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 6px 8px;
+  border-radius: 6px; background: transparent; color: var(--muted); text-align: left; font-weight: 600;
+}
+.channel-btn:hover { background: var(--hover); color: var(--text-2); filter: none; }
+.channel-btn[aria-current="true"] { background: var(--hover); color: var(--text); }
+.channel-btn[aria-current="true"] .icon { color: var(--ok); }
+.channel-btn:disabled { cursor: progress; opacity: .7; }
+
+/* Fora da chamada: sem barra de controles, painel de voz nem chat. */
+.room.idle .call-row, .room.idle .voice-panel, .room.idle #participants { display: none; }
+.room.idle #mute-btn { visibility: hidden; } /* sem microfone fora da chamada */
+.chat-idle { display: none; padding: 24px 16px; color: var(--muted); font-size: .9rem; }
+.room.idle .chat-idle { display: block; }
+.room.idle .chat-scroll, .room.idle .chat-form, .room.idle .chat-typing, .room.idle .chat-new, .room.idle .chat-error { display: none !important; }
+
+.idle-hint { display: none; margin: auto; padding: 24px; color: var(--muted); text-align: center; }
+.room.idle:not(.no-servers) .idle-hint { display: block; }
+.room.idle .stage-wrap { display: none; }
+.room.no-servers .sidebar .channels, .room.no-servers .server-menu-btn .icon { visibility: hidden; }
+
+/* Sem servidor nenhum (ex.: primeiro acesso): só a tela de boas-vindas, sem barras nem chat. */
+.room.no-servers { grid-template-columns: minmax(0, 1fr); }
+.room.no-servers > .rail, .room.no-servers > .sidebar, .room.no-servers > .chat,
+.room.no-servers .main-header, .room.no-servers .call-row, .room.no-servers .log,
+.room.no-servers .idle-hint, .room.no-servers .stage-wrap { display: none !important; }
+.no-server-logout { justify-self: center; margin-top: 8px; color: var(--muted); }
+
+/* Sem servidor nenhum. */
+.no-server {
+  margin: auto; max-width: 420px; padding: 24px; display: grid; gap: 14px; text-align: center;
+}
+.no-server h2 { margin: 0; }
+.no-server p { color: var(--muted); }
+.invite-paste { display: grid; gap: 8px; text-align: left; margin-top: 8px; }
+
+/* Janelas (criar servidor, convite, membros, confirmação). */
+.modal {
+  width: min(440px, calc(100vw - 24px)); padding: 0; border: 1px solid var(--line); border-radius: 14px;
+  background: var(--card); color: var(--text); box-shadow: 0 16px 48px rgb(0 0 0 / .6);
+}
+.modal::backdrop { background: rgb(0 0 0 / .7); }
+.modal-content { display: grid; gap: 14px; padding: 20px 24px; }
+.modal-content h2 { margin: 0; font-size: 1.2rem; }
+.modal-hint { color: var(--muted); font-size: .88rem; }
+.modal-error { color: #f0787b; font-size: .85rem; }
+.modal-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.modal-row select { width: 100%; padding: 10px; border-radius: 8px; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); }
+.modal-foot { display: flex; justify-content: flex-end; gap: 8px; }
+.danger-btn { background: var(--danger); color: #fff; }
+.invite-result { display: flex; gap: 8px; }
+.invite-result input { flex: 1; min-width: 0; }
+.members-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 50vh; overflow-y: auto; }
+.members-list li { display: flex; align-items: center; gap: 10px; }
+.member-owner { font-size: .7rem; color: var(--warn); font-weight: 700; }
+/* Chat dentro do palco: no modo chat ele ocupa o lugar da grade (as miniaturas ficam no topo). */
+.main:not(.chat-mode) .chat { display: none; }
+.main.chat-mode .stage-wrap { display: none; }
 
 /* ---- barra lateral ------------------------------------------------------- */
 
@@ -416,7 +504,7 @@ label { display: grid; gap: 6px; font-size: .85rem; color: var(--muted); font-we
 
 .stage-strip {
   flex: none; display: flex; gap: 8px; overflow-x: auto;
-  padding: 0 16px 12px;
+  padding: 12px 16px 4px; /* no topo do palco (ampliado e chat) */
 }
 .stage-strip > .tile { width: 176px; flex: none; }
 .stage-strip > :first-child { margin-left: auto; }
@@ -517,8 +605,9 @@ label { display: grid; gap: 6px; font-size: .85rem; color: var(--muted); font-we
 
 /* ---- chat de texto ----------------------------------------------------------- */
 
-.chat-toggle { position: relative; margin-left: auto; }
+.chat-toggle { position: relative; }
 .chat-toggle[aria-expanded="true"] { background: var(--hover); color: var(--text); }
+.chat-toggle .chat-unread { top: 4px; right: 4px; }
 .chat-unread {
   position: absolute; top: 2px; right: 0; min-width: 16px; height: 16px; padding: 0 4px;
   border-radius: 999px; background: var(--danger); color: #fff;
@@ -526,8 +615,9 @@ label { display: grid; gap: 6px; font-size: .85rem; color: var(--muted); font-we
 }
 
 .chat {
-  display: flex; flex-direction: column; min-width: 0; min-height: 0;
-  background: var(--card-2); border-left: 1px solid #1f2023;
+  flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0;
+  margin: 0 16px 8px; border-radius: 12px; overflow: hidden;
+  background: var(--card-2); border: 1px solid #1f2023;
 }
 .chat-header {
   height: 52px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 16px;
@@ -597,14 +687,6 @@ label { display: grid; gap: 6px; font-size: .85rem; color: var(--muted); font-we
 .chat-send:hover { color: var(--text); }
 .chat-error { padding: 0 16px 8px; font-size: .8rem; color: #f0787b; }
 
-/* Tela média: o chat vira painel por cima do palco (o palco não fica espremido). */
-@media (max-width: 1100px) and (min-width: 721px) {
-  .room.chat-open { grid-template-columns: 300px minmax(0, 1fr); }
-  .room.chat-open .chat {
-    position: absolute; top: 0; right: 0; bottom: 0; width: 340px; z-index: 7;
-    box-shadow: -12px 0 32px rgb(0 0 0 / .45);
-  }
-}
 
 /* ---- estatísticas da transmissão ---------------------------------------------- */
 
@@ -722,9 +804,13 @@ label { display: grid; gap: 6px; font-size: .85rem; color: var(--muted); font-we
 /* ---- telas estreitas ----------------------------------------------------- */
 
 @media (max-width: 720px) {
-  .room, .room.chat-open { height: auto; min-height: 100dvh; grid-template-columns: 1fr; }
-  /* Celular: o chat cobre a tela inteira (fecha pelo X). */
-  .room.chat-open .chat { position: fixed; inset: 0; z-index: 20; border-left: 0; }
+  .room { height: auto; min-height: 100dvh; grid-template-columns: 1fr; }
+  /* Celular: servidores numa faixa horizontal no topo. */
+  .rail { flex-direction: row; justify-content: flex-start; padding: 8px 12px; overflow-x: auto; overflow-y: hidden; }
+  .rail-list { grid-auto-flow: column; }
+  .rail-btn[aria-current="true"]::before { left: 8px; right: 8px; top: auto; bottom: -8px; width: auto; height: 4px; border-radius: 4px 4px 0 0; }
+  /* Altura fixa: a conversa rola por dentro e a caixa de texto fica sempre à vista. */
+  .chat { margin: 0 8px 8px; flex: none; height: 70dvh; }
   .channels { overflow: visible; flex: none; }
   .main { min-height: 75dvh; }
   .stage-wrap { margin: 12px; }

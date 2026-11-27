@@ -41,6 +41,7 @@ export class VoiceSignaling {
     this.connection.on('ViewerChanged', handlers.viewerChanged);
     this.connection.on('ChatMessage', handlers.chatMessage);
     this.connection.on('UserTyping', handlers.userTyping);
+    this.connection.on('Kicked', handlers.kicked);
     this.connection.on('ReceiveOffer', handlers.receiveOffer);
     this.connection.on('ReceiveAnswer', handlers.receiveAnswer);
     this.connection.on('ReceiveIceCandidate', handlers.receiveIceCandidate);

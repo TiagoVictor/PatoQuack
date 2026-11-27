@@ -34,4 +34,15 @@ export async function api(path, { method = 'GET', body } = {}) {
 /** Estado da sessão: { setupRequired, user: { id, email, displayName, isAdmin } | null } */
 export const getAuthState = () => api('/api/auth/state');
 export const logout = () => api('/api/auth/logout', { method: 'POST' });
-export const createInvite = (room) => api('/api/invites', { method: 'POST', body: { room } });
+// Servidores
+export const listServers = () => api('/api/servers');
+export const createServer = (name) => api('/api/servers', { method: 'POST', body: { name } });
+export const renameServer = (id, name) => api(`/api/servers/${id}`, { method: 'PATCH', body: { name } });
+export const deleteServer = (id) => api(`/api/servers/${id}`, { method: 'DELETE' });
+export const leaveServer = (id) => api(`/api/servers/${id}/leave`, { method: 'POST' });
+export const listMembers = (id) => api(`/api/servers/${id}/members`);
+/** Convite do servidor: expiresInDays 1|7|30, maxUses 1|10|null (sem limite). */
+export const createServerInvite = (id, expiresInDays, maxUses) =>
+  api(`/api/servers/${id}/invites`, { method: 'POST', body: { expiresInDays, maxUses } });
+export const getInvite = (code) => api(`/api/invites/${encodeURIComponent(code)}`);
+export const acceptInvite = (code) => api(`/api/invites/${encodeURIComponent(code)}/accept`, { method: 'POST' });

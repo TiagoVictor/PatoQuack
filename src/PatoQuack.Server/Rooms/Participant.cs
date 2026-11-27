@@ -5,4 +5,5 @@ namespace PatoQuack.Server.Rooms;
 /// <param name="Name">Nome de exibição.</param>
 /// <param name="Room">Nome normalizado da sala.</param>
 /// <param name="Muted">Se o participante está com o microfone mutado.</param>
-public sealed record Participant(string ConnectionId, string Name, string Room, bool Muted = false);
+/// <param name="UserId">Conta dona da conexão (para tirar a pessoa da sala ao sair do servidor).</param>
+public sealed record Participant(string ConnectionId, string Name, string Room, bool Muted = false, string UserId = "");

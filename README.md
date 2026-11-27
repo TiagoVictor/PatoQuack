@@ -152,8 +152,8 @@ migrações em `Data/Migrations`, aplicadas ao iniciar). O hub de voz exige logi
 vem da conta.
 
 - **Primeiro acesso:** com o banco vazio, o app abre "Primeiro acesso" e cria o **administrador**.
-- **Cadastro só por convite:** menu ⋯ → *Convidar pessoa* gera um link de uso único (7 dias) que
-  já leva à sala. Quem se cadastra recebe um e-mail de confirmação e só entra depois de confirmar.
+- **Cadastro só por convite:** o convite de um servidor (abaixo) também serve para criar conta.
+  Quem se cadastra recebe um e-mail de confirmação e só entra depois de confirmar.
 - **Segurança:** senha com 10+ caracteres; 5 erros bloqueiam a conta por 15 min; limite de
   tentativas por IP nas rotas de conta; cookie `HttpOnly`, `SameSite=Lax` (Secure em HTTPS); toda
   chamada que muda estado exige o cabeçalho `X-PatoQuack` (proteção contra requisição forjada);
@@ -167,9 +167,24 @@ vem da conta.
 - **Proxy reverso na VPS:** configure os cabeçalhos encaminhados (`X-Forwarded-For`) para o limite
   por IP enxergar o IP real.
 
+## Servidores
+
+Como no Discord: barra de servidores à esquerda, canais na barra lateral. Qualquer pessoa com conta
+cria servidores (botão **+**); cada servidor nasce com o canal de voz **Geral** (a chamada e o chat
+são por canal). Clique no canal para entrar na chamada.
+
+- **Convites:** menu do servidor → *Convidar pessoas*: vale 1, 7 ou 30 dias, para 1, até 10 ou sem
+  limite de pessoas (padrão: 7 dias, até 10). O mesmo link serve para quem já tem conta (um clique
+  para entrar) e para quem não tem (cadastro). Os usos são contados de forma atômica.
+- **Dono:** renomeia e apaga o servidor e vê os convites ativos; qualquer membro convida e vê os
+  membros; membros podem sair (o dono não — ele apaga o servidor).
+- **Autorização:** entrar no canal, ler e mandar no chat exigem ser membro (conferido no banco a
+  cada ação); quem não é membro recebe 404. Ao sair do servidor, ou quando ele é apagado, o
+  servidor tira a pessoa da chamada (não depende do navegador obedecer).
+
 ## Chat de texto
 
-Coluna à direita da chamada (em telas menores, painel por cima do palco; no celular, tela cheia).
+Botão de chat na barra de controles: o chat ocupa o palco e os blocos viram miniaturas no topo; clicar numa miniatura amplia o bloco e recolhe o chat (e o botão faz o inverso).
 As mensagens passam pelo hub (`SendChatMessage`, `GetChatHistory`, `Typing`) e ficam num arquivo
 **SQLite** (`ConnectionStrings:App`, padrão `storage/patoquack.db`, fora do git), atrás da interface
 `IChatStore` — trocar por PostgreSQL é escrever outra implementação.

@@ -23,6 +23,9 @@ public interface IVoiceClient
     /// <summary>Alguém está digitando (para os outros da sala).</summary>
     Task UserTyping(string connectionId);
 
+    /// <summary>Você foi tirado da sala pelo servidor (saiu do servidor, servidor apagado…).</summary>
+    Task Kicked(string reason);
+
     Task ReceiveOffer(string fromConnectionId, SessionDescriptionDto offer);
     Task ReceiveAnswer(string fromConnectionId, SessionDescriptionDto answer);
     Task ReceiveIceCandidate(string fromConnectionId, IceCandidateDto candidate);

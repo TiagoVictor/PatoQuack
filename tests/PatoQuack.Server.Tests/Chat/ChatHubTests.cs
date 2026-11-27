@@ -9,7 +9,6 @@ namespace PatoQuack.Server.Tests.Chat;
 public sealed class ChatHubTests(PatoQuackFactory factory) : IClassFixture<PatoQuackFactory>, IAsyncDisposable
 {
     private readonly List<HubTestClient> _clients = [];
-    private readonly string _room = $"c-{Guid.NewGuid():N}"[..20];
 
     [Fact]
     public async Task Message_is_normalized_stored_and_relayed_only_to_the_same_room()
@@ -17,7 +16,7 @@ public sealed class ChatHubTests(PatoQuackFactory factory) : IClassFixture<PatoQ
         var ana = await JoinAsync("Ana");
         var bia = await JoinAsync("Bia");
         var outsider = await ConnectAsync("Outro");
-        await outsider.JoinAsync(_room + "-x");
+        await outsider.JoinAsync(_otherRoom);
 
         var sent = await ana.Connection.InvokeAsync<ChatMessageDto>("SendChatMessage", "  olá\r\nmundo  ");
         Assert.Equal("olá\nmundo", sent.Text);
@@ -37,6 +36,7 @@ public sealed class ChatHubTests(PatoQuackFactory factory) : IClassFixture<PatoQ
     [Fact]
     public async Task History_is_paged_newest_first_per_room_without_connection_ids()
     {
+        await EnsureServersAsync();
         using var scope = factory.Services.CreateScope();
         var store = scope.ServiceProvider.GetRequiredService<IChatStore>();
         var start = DateTimeOffset.UtcNow.AddMinutes(-10);
@@ -44,7 +44,7 @@ public sealed class ChatHubTests(PatoQuackFactory factory) : IClassFixture<PatoQ
         {
             await store.AddAsync(_room, "Ana", $"m{i}", start.AddSeconds(i));
         }
-        await store.AddAsync(_room + "-x", "Outro", "não é desta sala", start);
+        await store.AddAsync(_otherRoom, "Outro", "não é desta sala", start);
 
         var caio = await JoinAsync("Caio");
         var first = await caio.Connection.InvokeAsync<ChatHistoryDto>("GetChatHistory", (long?)null);
@@ -124,9 +124,25 @@ public sealed class ChatHubTests(PatoQuackFactory factory) : IClassFixture<PatoQ
         return client;
     }
 
+    // Cada teste tem um servidor principal (_room = canal de voz dele) e outro servidor
+    // (_otherRoom), para testar isolamento entre salas. Quem conecta é membro dos dois.
+    private int _room;
+    private int _otherRoom;
+    private int _mainServer;
+    private int _otherServer;
+
+    private async Task EnsureServersAsync()
+    {
+        if (_mainServer != 0) return;
+        var owner = await factory.CreateUserAsync("Dono");
+        (_mainServer, _room) = await factory.CreateServerAsync(owner.Id, "Principal");
+        (_otherServer, _otherRoom) = await factory.CreateServerAsync(owner.Id, "Outro");
+    }
+
     private async Task<HubTestClient> ConnectAsync(string? name = null)
     {
-        var client = await HubTestClient.ConnectAsync(factory, name);
+        await EnsureServersAsync();
+        var client = await HubTestClient.ConnectAsync(factory, name, _mainServer, _otherServer);
         _clients.Add(client);
         return client;
     }

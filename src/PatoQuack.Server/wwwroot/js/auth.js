@@ -1,9 +1,9 @@
-// Página de conta (auth.html). Um formulário com 6 modos, escolhidos por ?modo=:
-//   entrar · cadastro (com ?convite=) · confirmar (link do e-mail) · esqueci · redefinir (link) ·
-//   configurar (primeiro acesso: cria o administrador).
-// ?sala= é preservado para levar a pessoa à sala certa depois de entrar.
+// Página de conta (auth.html). Um formulário com 7 modos, escolhidos por ?modo=:
+//   entrar · convite (link de convite de servidor) · cadastro (com ?convite=) ·
+//   confirmar (link do e-mail) · esqueci · redefinir (link) · configurar (primeiro acesso).
+// ?servidor= e ?convite= são preservados para levar a pessoa ao servidor certo depois de entrar.
 
-import { api, getAuthState } from './api.js';
+import { acceptInvite, api, getAuthState, getInvite } from './api.js';
 
 const $ = (id) => document.getElementById(id);
 const ui = {
@@ -26,15 +26,30 @@ const ui = {
 };
 
 const params = new URLSearchParams(location.search);
-const room = params.get('sala');
+let serverId = params.get('servidor');
+const inviteCode = params.get('convite');
 let mode = params.get('modo') ?? 'entrar';
 
-/** Endereço da sala (para onde ir depois de entrar). */
-const homeUrl = () => (room ? `/?sala=${encodeURIComponent(room)}` : '/');
+/** Para onde ir depois de entrar: o servidor do convite/link, ou a tela inicial. */
+const homeUrl = () => (serverId ? `/?servidor=${encodeURIComponent(serverId)}` : '/');
 const authUrl = (m, extra = {}) => {
-  const q = new URLSearchParams({ modo: m, ...(room ? { sala: room } : {}), ...extra });
+  const q = new URLSearchParams({ modo: m, ...(serverId ? { servidor: serverId } : {}), ...(inviteCode ? { convite: inviteCode } : {}), ...extra });
   return `/auth.html?${q}`;
 };
+
+/** Logado com um convite em mãos: entra no servidor e vai para ele. */
+async function acceptAndGo() {
+  const accepted = await acceptInvite(inviteCode);
+  serverId = String(accepted.serverId);
+  location.replace(homeUrl());
+}
+
+/** Texto do convite: "Ana te convidou para o servidor Turma (3 membros)." */
+function inviteText(info) {
+  const who = info.inviterName ? `${info.inviterName} te convidou` : 'Você foi convidado';
+  const count = info.memberCount === 1 ? '1 membro' : `${info.memberCount} membros`;
+  return `${who} para o servidor ${info.serverName} (${count}).`;
+}
 
 function setStatus(message, level = 'info') {
   ui.status.textContent = message;
@@ -105,7 +120,8 @@ const modes = {
       busy(async () => {
         try {
           await api('/api/auth/login', { method: 'POST', body: { email: ui.email.value, password: ui.password.value } });
-          location.replace(homeUrl());
+          if (inviteCode) await acceptAndGo(); // veio de um convite: entra no servidor
+          else location.replace(homeUrl());
         } catch (err) {
           // 403 = senha certa, mas o e-mail não foi confirmado: oferece reenviar o link.
           ui.resend.hidden = err.status !== 403;
@@ -120,17 +136,42 @@ const modes = {
     });
   },
 
-  async cadastro() {
-    const code = params.get('convite');
-    layout({ title: 'Criar conta', email: true, name: true, password: true, password2: true, submit: 'Criar conta', newPassword: true });
-    setLinks(['Já tenho conta', authUrl('entrar')]);
-    const info = code ? await api(`/api/invites/${encodeURIComponent(code)}`).catch(() => null) : null;
+  async convite() {
+    layout({ title: 'Convite' });
+    const info = inviteCode ? await getInvite(inviteCode).catch(() => null) : null;
     if (!info?.valid) {
       layout({ title: 'Convite inválido' });
-      setStatus('Este convite não existe, venceu ou já foi usado. Peça um novo a quem te convidou.', 'error');
+      setStatus('Este convite não existe, venceu ou esgotou. Peça um novo a quem te convidou.', 'error');
       return;
     }
-    ui.intro.textContent = info.inviterName ? `${info.inviterName} te convidou para o PatoQuack.` : 'Você foi convidado para o PatoQuack.';
+    ui.intro.textContent = inviteText(info);
+    ui.intro.hidden = false;
+    const state = await getAuthState().catch(() => ({ user: null }));
+    if (state.user) {
+      // Logado: um clique para entrar (ou abrir, se já é membro).
+      layout({ title: 'Convite', intro: inviteText(info), submit: info.alreadyMember ? 'Abrir o servidor' : 'Entrar no servidor' });
+      setLinks();
+      ui.form.onsubmit = (e) => {
+        e.preventDefault();
+        busy(acceptAndGo);
+      };
+      return;
+    }
+    layout({ title: 'Convite', intro: `${inviteText(info)} Para entrar, crie sua conta ou entre com a que já tem.` });
+    setLinks(['Criar conta', authUrl('cadastro')], ['Já tenho conta', authUrl('entrar')]);
+  },
+
+  async cadastro() {
+    const code = inviteCode;
+    layout({ title: 'Criar conta', email: true, name: true, password: true, password2: true, submit: 'Criar conta', newPassword: true });
+    setLinks(['Já tenho conta', authUrl('entrar')]);
+    const info = code ? await getInvite(code).catch(() => null) : null;
+    if (!info?.valid) {
+      layout({ title: 'Convite inválido' });
+      setStatus('Este convite não existe, venceu ou esgotou. Peça um novo a quem te convidou.', 'error');
+      return;
+    }
+    ui.intro.textContent = inviteText(info);
     ui.intro.hidden = false;
     ui.form.onsubmit = (e) => {
       e.preventDefault();
@@ -138,7 +179,7 @@ const modes = {
       busy(async () => {
         await api('/api/auth/register', { method: 'POST', body: { invite: code, email: ui.email.value, displayName: ui.name.value, password: ui.password.value } });
         layout({ title: 'Confirme seu e-mail' });
-        setLinks(['Ir para o login', authUrl('entrar')]);
+        setLinks(['Ir para o login', authUrl('entrar')]); // com o convite: ao entrar, vai direto ao servidor
         setStatus(`Conta criada! Enviamos um link para ${ui.email.value}. Abra o link para ativar a conta e depois entre.`);
       });
     };
@@ -191,7 +232,7 @@ const modes = {
   async configurar() {
     layout({
       title: 'Primeiro acesso',
-      intro: 'Crie a conta de administrador do PatoQuack. Depois, convide as outras pessoas pelo menu ⋯ da sala.',
+      intro: 'Crie a conta de administrador do PatoQuack. Depois, crie um servidor e convide as outras pessoas.',
       email: true, name: true, password: true, password2: true, submit: 'Criar administrador', newPassword: true,
     });
     setLinks();
@@ -218,10 +259,13 @@ async function start() {
   }
   if (state.setupRequired) mode = 'configurar';
   else if (mode === 'configurar') mode = 'entrar';
-  // Já logado: entrar/configurar não fazem sentido, vai direto para a sala.
+  // Já logado: entrar/configurar não fazem sentido. Com convite, mostra o convite.
   if (state.user && (mode === 'entrar' || mode === 'configurar')) {
-    location.replace(homeUrl());
-    return;
+    if (inviteCode) mode = 'convite';
+    else {
+      location.replace(homeUrl());
+      return;
+    }
   }
   await (modes[mode] ?? modes.entrar)();
   [...ui.form.querySelectorAll('label')].find((label) => !label.hidden)?.querySelector('input')?.focus();

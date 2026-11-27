@@ -6,17 +6,17 @@ namespace PatoQuack.Server.Chat;
 /// <summary>Mensagens do chat no banco da aplicação (EF Core; hoje SQLite).</summary>
 public sealed class EfChatStore(AppDbContext db) : IChatStore
 {
-    public async Task<StoredChatMessage> AddAsync(string room, string authorName, string text, DateTimeOffset sentAt)
+    public async Task<StoredChatMessage> AddAsync(int channelId, string authorName, string text, DateTimeOffset sentAt)
     {
-        var message = new ChatMessage { Room = room, AuthorName = authorName, Text = text, SentAt = sentAt };
+        var message = new ChatMessage { ChannelId = channelId, AuthorName = authorName, Text = text, SentAt = sentAt };
         db.ChatMessages.Add(message);
         await db.SaveChangesAsync();
         return ToStored(message);
     }
 
-    public async Task<IReadOnlyList<StoredChatMessage>> GetRecentAsync(string room, int limit, long? beforeId = null)
+    public async Task<IReadOnlyList<StoredChatMessage>> GetRecentAsync(int channelId, int limit, long? beforeId = null)
     {
-        var query = db.ChatMessages.AsNoTracking().Where(m => m.Room == room);
+        var query = db.ChatMessages.AsNoTracking().Where(m => m.ChannelId == channelId);
         if (beforeId is { } before)
         {
             query = query.Where(m => m.Id < before);
@@ -30,5 +30,5 @@ public sealed class EfChatStore(AppDbContext db) : IChatStore
     public Task<int> DeleteOlderThanAsync(DateTimeOffset cutoff) =>
         db.ChatMessages.Where(m => m.SentAt < cutoff).ExecuteDeleteAsync();
 
-    private static StoredChatMessage ToStored(ChatMessage m) => new(m.Id, m.Room, m.AuthorName, m.Text, m.SentAt);
+    private static StoredChatMessage ToStored(ChatMessage m) => new(m.Id, m.ChannelId, m.AuthorName, m.Text, m.SentAt);
 }

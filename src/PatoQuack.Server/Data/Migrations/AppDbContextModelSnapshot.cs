@@ -219,6 +219,33 @@ namespace PatoQuack.Server.Data.Migrations
                     b.ToTable("AspNetUsers", (string)null);
                 });
 
+            modelBuilder.Entity("PatoQuack.Server.Data.Channel", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ServerId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ServerId");
+
+                    b.ToTable("Channels");
+                });
+
             modelBuilder.Entity("PatoQuack.Server.Data.ChatMessage", b =>
                 {
                     b.Property<long>("Id")
@@ -233,10 +260,8 @@ namespace PatoQuack.Server.Data.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("Room")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("TEXT");
+                    b.Property<int>("ChannelId")
+                        .HasColumnType("INTEGER");
 
                     b.Property<long>("SentAt")
                         .HasColumnType("INTEGER");
@@ -250,12 +275,37 @@ namespace PatoQuack.Server.Data.Migrations
 
                     b.HasIndex("SentAt");
 
-                    b.HasIndex("Room", "Id");
+                    b.HasIndex("ChannelId", "Id");
 
                     b.ToTable("ChatMessages");
                 });
 
-            modelBuilder.Entity("PatoQuack.Server.Data.SignupInvite", b =>
+            modelBuilder.Entity("PatoQuack.Server.Data.Server", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OwnerId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OwnerId");
+
+                    b.ToTable("Servers");
+                });
+
+            modelBuilder.Entity("PatoQuack.Server.Data.ServerInvite", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
@@ -276,15 +326,17 @@ namespace PatoQuack.Server.Data.Migrations
                     b.Property<long>("ExpiresAt")
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("Room")
-                        .HasMaxLength(32)
-                        .HasColumnType("TEXT");
-
-                    b.Property<long?>("UsedAt")
+                    b.Property<int?>("MaxUses")
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("UsedById")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("RevokedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ServerId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Uses")
+                        .HasColumnType("INTEGER");
 
                     b.HasKey("Id");
 
@@ -293,7 +345,30 @@ namespace PatoQuack.Server.Data.Migrations
 
                     b.HasIndex("CreatedById");
 
-                    b.ToTable("SignupInvites");
+                    b.HasIndex("ServerId");
+
+                    b.ToTable("ServerInvites");
+                });
+
+            modelBuilder.Entity("PatoQuack.Server.Data.ServerMember", b =>
+                {
+                    b.Property<int>("ServerId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("UserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("JoinedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Role")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("ServerId", "UserId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("ServerMembers");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
@@ -347,7 +422,40 @@ namespace PatoQuack.Server.Data.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("PatoQuack.Server.Data.SignupInvite", b =>
+            modelBuilder.Entity("PatoQuack.Server.Data.Channel", b =>
+                {
+                    b.HasOne("PatoQuack.Server.Data.Server", "Server")
+                        .WithMany("Channels")
+                        .HasForeignKey("ServerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Server");
+                });
+
+            modelBuilder.Entity("PatoQuack.Server.Data.ChatMessage", b =>
+                {
+                    b.HasOne("PatoQuack.Server.Data.Channel", "Channel")
+                        .WithMany()
+                        .HasForeignKey("ChannelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Channel");
+                });
+
+            modelBuilder.Entity("PatoQuack.Server.Data.Server", b =>
+                {
+                    b.HasOne("PatoQuack.Server.Data.AppUser", "Owner")
+                        .WithMany()
+                        .HasForeignKey("OwnerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Owner");
+                });
+
+            modelBuilder.Entity("PatoQuack.Server.Data.ServerInvite", b =>
                 {
                     b.HasOne("PatoQuack.Server.Data.AppUser", "CreatedBy")
                         .WithMany()
@@ -355,7 +463,41 @@ namespace PatoQuack.Server.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("PatoQuack.Server.Data.Server", "Server")
+                        .WithMany()
+                        .HasForeignKey("ServerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
                     b.Navigation("CreatedBy");
+
+                    b.Navigation("Server");
+                });
+
+            modelBuilder.Entity("PatoQuack.Server.Data.ServerMember", b =>
+                {
+                    b.HasOne("PatoQuack.Server.Data.Server", "Server")
+                        .WithMany("Members")
+                        .HasForeignKey("ServerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("PatoQuack.Server.Data.AppUser", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Server");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("PatoQuack.Server.Data.Server", b =>
+                {
+                    b.Navigation("Channels");
+
+                    b.Navigation("Members");
                 });
 #pragma warning restore 612, 618
         }

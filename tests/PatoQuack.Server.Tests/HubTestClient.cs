@@ -23,6 +23,7 @@ internal sealed class HubTestClient
         Listen("ViewerChanged", typeof(string), typeof(bool));
         Listen("ChatMessage", typeof(ChatMessageDto));
         Listen("UserTyping", typeof(string));
+        Listen("Kicked", typeof(string));
         Listen("ReceiveOffer", typeof(string), typeof(SessionDescriptionDto));
         Listen("ReceiveAnswer", typeof(string), typeof(SessionDescriptionDto));
         Listen("ReceiveIceCandidate", typeof(string), typeof(IceCandidateDto));
@@ -31,11 +32,12 @@ internal sealed class HubTestClient
     public HubConnection Connection { get; }
     public string Id => Connection.ConnectionId!;
 
-    public async Task<IReadOnlyList<ParticipantDto>> JoinAsync(string room) =>
-        (await JoinWithStreamAsync(room)).Participants;
+    /// <summary>Entra no canal de voz (sala).</summary>
+    public async Task<IReadOnlyList<ParticipantDto>> JoinAsync(int channelId) =>
+        (await JoinWithStreamAsync(channelId)).Participants;
 
-    public Task<JoinRoomResultDto> JoinWithStreamAsync(string room) =>
-        Connection.InvokeAsync<JoinRoomResultDto>("JoinRoom", room);
+    public Task<JoinRoomResultDto> JoinWithStreamAsync(int channelId) =>
+        Connection.InvokeAsync<JoinRoomResultDto>("JoinRoom", channelId);
 
     public async Task<object?[]> NextAsync(string method)
     {
@@ -54,10 +56,18 @@ internal sealed class HubTestClient
         });
     }
 
-    /// <summary>Cria uma conta com esse nome, faz login e conecta ao hub com o cookie da sessão.</summary>
-    public static async Task<HubTestClient> ConnectAsync(PatoQuackFactory factory, string? displayName = null)
+    /// <summary>
+    /// Cria uma conta com esse nome, membro dos servidores indicados, faz login e conecta ao hub
+    /// com o cookie da sessão.
+    /// </summary>
+    public static async Task<HubTestClient> ConnectAsync(PatoQuackFactory factory, string? displayName = null, params int[] memberOf)
     {
         var user = await factory.CreateUserAsync(displayName ?? $"P{Guid.NewGuid():N}"[..8]);
+        foreach (var serverId in memberOf)
+        {
+            await factory.AddMemberAsync(serverId, user.Id);
+        }
+
         var cookie = await factory.LoginCookieAsync(user.Email!);
         return await ConnectWithCookieAsync(factory, cookie);
     }

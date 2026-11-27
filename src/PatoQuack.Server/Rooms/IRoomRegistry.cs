@@ -37,6 +37,12 @@ public interface IRoomRegistry
 
     /// <summary>Quem transmite vídeo na sala, ou null se ninguém (ou a sala não existe).</summary>
     Task<Participant?> GetStreamerAsync(string room);
+
+    /// <summary>Conexões de uma conta (a mesma pessoa pode estar em mais de uma aba).</summary>
+    Task<IReadOnlyList<Participant>> GetByUserAsync(string userId);
+
+    /// <summary>Quem está na sala agora.</summary>
+    Task<IReadOnlyList<Participant>> GetParticipantsAsync(string room);
 }
 
 public enum StreamStartStatus

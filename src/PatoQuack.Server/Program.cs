@@ -7,6 +7,7 @@ using PatoQuack.Server.Chat;
 using PatoQuack.Server.Data;
 using PatoQuack.Server.Email;
 using PatoQuack.Server.Rooms;
+using PatoQuack.Server.Servers;
 using PatoQuack.Server.Voice;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -93,6 +94,7 @@ builder.Services.AddSingleton<IRoomRegistry, InMemoryRoomRegistry>();
 builder.Services.Configure<ChatOptions>(builder.Configuration.GetSection(ChatOptions.SectionName));
 builder.Services.AddScoped<IChatStore, EfChatStore>();
 builder.Services.AddSingleton<ChatRateLimiter>();
+builder.Services.AddSingleton<VoicePresence>();
 builder.Services.AddHostedService<ChatRetentionService>();
 
 builder.Services.AddSignalR(options =>
@@ -124,6 +126,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapAuthEndpoints();
+app.MapServerEndpoints();
 app.MapHub<VoiceHub>(VoiceHub.Path);
 
 app.Run();

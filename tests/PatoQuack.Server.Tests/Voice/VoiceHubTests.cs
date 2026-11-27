@@ -12,8 +12,6 @@ public sealed class VoiceHubTests(PatoQuackFactory factory)
 {
     private readonly List<HubTestClient> _clients = [];
 
-    // Cada teste usa uma sala própria, porque o registro é compartilhado pela fixture.
-    private readonly string _room = $"t-{Guid.NewGuid():N}"[..20];
 
     [Fact]
     public async Task Join_returns_existing_participants_and_notifies_others()
@@ -62,7 +60,7 @@ public sealed class VoiceHubTests(PatoQuackFactory factory)
         var ana = await ConnectAsync("Ana");
         var bia = await ConnectAsync("Bia");
         await ana.JoinAsync(_room);
-        await bia.JoinAsync(_room + "-x");
+        await bia.JoinAsync(_otherRoom);
 
         var ex = await Assert.ThrowsAsync<HubException>(() =>
             bia.Connection.InvokeAsync("SendOffer", ana.Id, new SessionDescriptionDto("offer", "v=0")));
@@ -95,15 +93,17 @@ public sealed class VoiceHubTests(PatoQuackFactory factory)
         Assert.Contains("cheia", ex.Message);
     }
 
-    [Theory]
-    [InlineData("")]
-    [InlineData("sala com espaço")]
-    [InlineData("SALA/../x")]
-    public async Task Invalid_room_is_rejected(string room)
+    [Fact]
+    public async Task Join_requires_membership_and_an_existing_voice_channel()
     {
-        // O nome não é mais validado aqui: vem da conta (validado no cadastro).
-        var client = await ConnectAsync();
-        await Assert.ThrowsAsync<HubException>(() => client.JoinAsync(room));
+        await EnsureServersAsync();
+        var outsider = await HubTestClient.ConnectAsync(factory, "Intruso"); // sem servidor nenhum
+        _clients.Add(outsider);
+        var ex = await Assert.ThrowsAsync<HubException>(() => outsider.JoinAsync(_room));
+        Assert.Contains("não é membro", ex.Message);
+
+        var member = await ConnectAsync("Ana");
+        await Assert.ThrowsAsync<HubException>(() => member.JoinAsync(999_999));
     }
 
     [Fact]
@@ -180,7 +180,7 @@ public sealed class VoiceHubTests(PatoQuackFactory factory)
         var other = await ConnectAsync("Outro");
         await ana.JoinAsync(_room);
         await bia.JoinAsync(_room);
-        await other.JoinAsync(_room + "-x");
+        await other.JoinAsync(_otherRoom);
 
         await ana.Connection.InvokeAsync("StartStream");
         var ex = await Assert.ThrowsAsync<HubException>(() => bia.Connection.InvokeAsync("StartStream"));
@@ -252,7 +252,7 @@ public sealed class VoiceHubTests(PatoQuackFactory factory)
         await ana.JoinAsync(_room);
         await bia.JoinAsync(_room);
         await caio.JoinAsync(_room);
-        await outsider.JoinAsync(_room + "-x");
+        await outsider.JoinAsync(_otherRoom);
 
         await ana.Connection.InvokeAsync("StartStream");
         await bia.Connection.InvokeAsync("WatchStream", true);
@@ -280,9 +280,25 @@ public sealed class VoiceHubTests(PatoQuackFactory factory)
 
     // ---- infraestrutura --------------------------------------------------
 
+    // Cada teste tem um servidor principal (_room = canal de voz dele) e outro servidor
+    // (_otherRoom), para testar isolamento entre salas. Quem conecta é membro dos dois.
+    private int _room;
+    private int _otherRoom;
+    private int _mainServer;
+    private int _otherServer;
+
+    private async Task EnsureServersAsync()
+    {
+        if (_mainServer != 0) return;
+        var owner = await factory.CreateUserAsync("Dono");
+        (_mainServer, _room) = await factory.CreateServerAsync(owner.Id, "Principal");
+        (_otherServer, _otherRoom) = await factory.CreateServerAsync(owner.Id, "Outro");
+    }
+
     private async Task<HubTestClient> ConnectAsync(string? name = null)
     {
-        var client = await HubTestClient.ConnectAsync(factory, name);
+        await EnsureServersAsync();
+        var client = await HubTestClient.ConnectAsync(factory, name, _mainServer, _otherServer);
         _clients.Add(client);
         return client;
     }

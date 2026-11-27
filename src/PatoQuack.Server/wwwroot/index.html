@@ -93,6 +93,12 @@
       <path d="M4 12 20 4l-4 16-4-6z"/>
       <path d="m12 14 8-10"/>
     </symbol>
+    <symbol id="i-users" viewBox="0 0 24 24">
+      <circle cx="9" cy="8" r="3.5"/>
+      <path d="M2.5 20c.6-3.6 3.3-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/>
+      <path d="M15.5 4.8a3.5 3.5 0 0 1 0 6.4"/>
+      <path d="M18 14.8c2 .7 3.2 2.4 3.5 5.2"/>
+    </symbol>
     <symbol id="i-pip" viewBox="0 0 24 24">
       <rect x="2" y="4" width="20" height="16" rx="2"/>
       <rect x="12" y="12" width="7" height="5" rx="1"/>
@@ -106,36 +112,32 @@
         <h1>PatoQuack</h1>
         <span class="tag">voz</span>
       </header>
-      <form id="join-form" autocomplete="on">
-        <div class="join-account">
-          <span>Entrando como <strong id="me-name">…</strong></span>
-          <button type="button" id="logout-btn" class="link-btn">Sair da conta</button>
-        </div>
-        <label>
-          Sala
-          <input id="room" name="room" maxlength="32" required pattern="[A-Za-z0-9_\-]+"
-                 title="Letras, números, - ou _" placeholder="geral">
-        </label>
-        <button type="submit" id="join-btn" class="primary" disabled>Entrar na voz</button>
-      </form>
-      <p id="status" class="status" role="status" data-level="info"></p>
+      <!-- Só aparece enquanto o app carrega (ou se falhar ao carregar). -->
+      <p id="status" class="status" role="status" data-level="info">Carregando…</p>
     </section>
   </main>
 
   <!-- Sala: barra lateral (canal + controles) e palco (blocos de quem está na chamada) -->
-  <div id="room-view" class="room" hidden>
+  <div id="room-view" class="room idle" hidden>
+    <!-- Barra de servidores (js/servers-ui.js) -->
+    <nav id="server-rail" class="rail" aria-label="Servidores">
+      <ul id="server-list" class="rail-list"></ul>
+      <button type="button" id="add-server-btn" class="rail-btn rail-add" aria-label="Criar servidor" title="Criar servidor">+</button>
+    </nav>
+
     <aside class="sidebar">
       <header class="sidebar-header">
-        <span class="sidebar-brand">PatoQuack</span>
+        <button type="button" id="server-menu-btn" class="server-menu-btn" popovertarget="menu-server" aria-label="Opções do servidor" title="Opções do servidor">
+          <span id="server-name" class="server-name">PatoQuack</span>
+          <svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg>
+        </button>
       </header>
 
       <nav class="channels" aria-labelledby="voice-section-label">
-        <h2 id="voice-section-label" class="section-label">Canal de voz</h2>
-        <div class="channel">
-          <svg class="icon" aria-hidden="true"><use href="#i-volume"/></svg>
-          <span id="room-name" class="channel-name"></span>
-          <time id="call-timer" class="channel-timer" title="Tempo na chamada"></time>
-        </div>
+        <h2 id="voice-section-label" class="section-label">Canais de voz</h2>
+        <!-- Botões dos canais; o da chamada atual recebe o cronômetro e a lista de participantes. -->
+        <ul id="channel-list" class="channel-list"></ul>
+        <time id="call-timer" class="channel-timer" title="Tempo na chamada" hidden></time>
         <ul id="participants" class="participants" aria-label="Participantes"></ul>
       </nav>
 
@@ -203,10 +205,6 @@
           <span class="stream-live">AO VIVO</span>
         </span>
         <button type="button" id="stop-watching-btn" class="header-btn" hidden>Parar de assistir</button>
-        <button type="button" id="chat-toggle" class="icon-btn chat-toggle" aria-controls="chat-panel" aria-expanded="true" title="Chat">
-          <svg class="icon" aria-hidden="true"><use href="#i-chat"/></svg>
-          <span id="chat-unread" class="chat-unread" hidden></span>
-        </button>
       </header>
 
       <div id="room-alert" class="alert" role="alert" data-level="warn" hidden>
@@ -216,8 +214,26 @@
         </button>
       </div>
 
-      <!-- Palco: blocos montados pelo app.js. Em foco, o bloco escolhido vai para #stage-grid
-           e os demais para #stage-strip. -->
+      <!-- Sem servidor nenhum: criar ou entrar por convite. -->
+      <section id="no-server" class="no-server" hidden>
+        <h2>Bem-vindo ao PatoQuack</h2>
+        <p>Você ainda não está em nenhum servidor.</p>
+        <button type="button" id="no-server-create" class="primary">Criar um servidor</button>
+        <form id="invite-paste-form" class="invite-paste">
+          <label>
+            Recebeu um convite? Cole o link aqui
+            <input id="invite-paste" placeholder="https://…/auth.html?modo=convite&convite=…" autocomplete="off">
+          </label>
+          <button type="submit">Abrir convite</button>
+        </form>
+        <button type="button" id="no-server-logout" class="link-btn no-server-logout">Sair da conta</button>
+      </section>
+
+      <!-- Palco: blocos montados pelo app.js. Modos: grade (todos em #stage-grid), ampliado (um
+           bloco em #stage-grid, os demais em miniatura em #stage-strip, no topo) e chat (o chat
+           ocupa o palco, todos os blocos em miniatura no topo). -->
+      <p class="idle-hint">Clique num canal de voz para entrar na chamada.</p>
+      <div id="stage-strip" class="stage-strip" hidden></div>
       <div class="stage-wrap">
         <div id="stage-grid" class="stage-grid"></div>
         <p id="stage-empty" class="stage-empty" hidden>
@@ -225,7 +241,32 @@
           <strong>Mostrar participantes sem vídeo</strong> em Mais opções (⋯).
         </p>
       </div>
-      <div id="stage-strip" class="stage-strip" hidden></div>
+
+      <!-- Chat de texto (js/chat.js): ocupa o palco quando aberto (botão na barra de controles). -->
+      <section id="chat-panel" class="chat" aria-labelledby="chat-title">
+        <header class="chat-header">
+          <svg class="icon" aria-hidden="true"><use href="#i-chat"/></svg>
+          <h2 id="chat-title">Chat</h2>
+          <button type="button" id="chat-close" class="icon-btn small" aria-label="Fechar chat" title="Fechar chat">
+            <svg class="icon" aria-hidden="true"><use href="#i-close"/></svg>
+          </button>
+        </header>
+        <p class="chat-idle">Entre num canal de voz para ver e mandar mensagens.</p>
+        <div id="chat-scroll" class="chat-scroll">
+          <button type="button" id="chat-more" class="chat-more" hidden>Carregar mensagens anteriores</button>
+          <p id="chat-start" class="chat-start" hidden>Começo da conversa em <strong id="chat-start-room"></strong>.</p>
+          <ol id="chat-list" class="chat-list" role="log" aria-label="Mensagens"></ol>
+        </div>
+        <button type="button" id="chat-new" class="chat-new" hidden>Novas mensagens ↓</button>
+        <p id="chat-typing" class="chat-typing" aria-live="polite"></p>
+        <form id="chat-form" class="chat-form">
+          <textarea id="chat-input" rows="1" maxlength="2000" aria-label="Mensagem" placeholder="Conversar"></textarea>
+          <button type="submit" class="icon-btn chat-send" aria-label="Enviar mensagem" title="Enviar (Enter)">
+            <svg class="icon" aria-hidden="true"><use href="#i-send"/></svg>
+          </button>
+        </form>
+        <p id="chat-error" class="chat-error" role="alert" hidden></p>
+      </section>
 
       <!-- Barra de controles da chamada (espelha os botões da doca da barra lateral) -->
       <div class="call-row">
@@ -258,6 +299,10 @@
                 <svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg>
               </button>
             </div>
+            <button type="button" id="chat-toggle" class="bar-btn chat-toggle" aria-controls="chat-panel" aria-expanded="false" aria-label="Chat" title="Abrir chat">
+              <svg class="icon" aria-hidden="true"><use href="#i-chat"/></svg>
+              <span id="chat-unread" class="chat-unread" hidden></span>
+            </button>
             <button type="button" id="bar-more" class="bar-btn" popovertarget="menu-more" aria-label="Mais opções" title="Mais opções">
               <svg class="icon icon-fill" aria-hidden="true"><use href="#i-more"/></svg>
             </button>
@@ -297,30 +342,26 @@
       </details>
     </section>
 
-    <!-- Chat de texto (js/chat.js). Coluna da direita; em telas menores, painel sobre o palco. -->
-    <aside id="chat-panel" class="chat" aria-labelledby="chat-title">
-      <header class="chat-header">
-        <svg class="icon" aria-hidden="true"><use href="#i-chat"/></svg>
-        <h2 id="chat-title">Chat</h2>
-        <button type="button" id="chat-close" class="icon-btn small" aria-label="Fechar chat" title="Fechar chat">
-          <svg class="icon" aria-hidden="true"><use href="#i-close"/></svg>
-        </button>
-      </header>
-      <div id="chat-scroll" class="chat-scroll">
-        <button type="button" id="chat-more" class="chat-more" hidden>Carregar mensagens anteriores</button>
-        <p id="chat-start" class="chat-start" hidden>Começo da conversa em <strong id="chat-start-room"></strong>.</p>
-        <ol id="chat-list" class="chat-list" role="log" aria-label="Mensagens"></ol>
-      </div>
-      <button type="button" id="chat-new" class="chat-new" hidden>Novas mensagens ↓</button>
-      <p id="chat-typing" class="chat-typing" aria-live="polite"></p>
-      <form id="chat-form" class="chat-form">
-        <textarea id="chat-input" rows="1" maxlength="2000" aria-label="Mensagem" placeholder="Conversar"></textarea>
-        <button type="submit" class="icon-btn chat-send" aria-label="Enviar mensagem" title="Enviar (Enter)">
-          <svg class="icon" aria-hidden="true"><use href="#i-send"/></svg>
-        </button>
-      </form>
-      <p id="chat-error" class="chat-error" role="alert" hidden></p>
-    </aside>
+    <!-- Menu do servidor (nome no topo da barra lateral) -->
+    <div id="menu-server" class="menu" popover role="dialog" aria-label="Opções do servidor" data-anchor="server-menu-btn">
+      <button type="button" id="server-invite" class="menu-item">
+        <svg class="icon" aria-hidden="true"><use href="#i-link"/></svg>Convidar pessoas
+      </button>
+      <button type="button" id="server-members" class="menu-item">
+        <svg class="icon" aria-hidden="true"><use href="#i-users"/></svg>Membros
+      </button>
+      <button type="button" id="server-rename" class="menu-item" hidden>
+        <svg class="icon" aria-hidden="true"><use href="#i-swap"/></svg>Renomear servidor
+      </button>
+      <hr class="menu-sep">
+      <button type="button" id="server-delete" class="menu-item danger" hidden>
+        <svg class="icon" aria-hidden="true"><use href="#i-close"/></svg>Apagar servidor
+      </button>
+      <button type="button" id="server-leave" class="menu-item danger" hidden>
+        <svg class="icon" aria-hidden="true"><use href="#i-leave"/></svg>Sair do servidor
+      </button>
+    </div>
+
 
     <!-- Painéis (popover nativo: fecham com Esc ou clique fora). Posicionados por js/menus.js
          junto do botão indicado em data-anchor. -->
@@ -405,7 +446,7 @@
 
     <div id="menu-more" class="menu" popover role="dialog" aria-label="Mais opções" data-anchor="bar-more">
       <button type="button" id="menu-invite" class="menu-item">
-        <svg class="icon" aria-hidden="true"><use href="#i-link"/></svg>Convidar pessoa (link de uso único)
+        <svg class="icon" aria-hidden="true"><use href="#i-link"/></svg>Convidar pessoas
       </button>
       <button type="button" id="menu-logout" class="menu-item">
         <svg class="icon" aria-hidden="true"><use href="#i-leave"/></svg>Sair da conta
@@ -433,6 +474,78 @@
       </label>
     </div>
   </div>
+
+  <!-- Janelas do servidor (js/servers-ui.js) -->
+  <dialog id="dialog-create" class="modal" aria-labelledby="dialog-create-title">
+    <form method="dialog" class="modal-content" id="create-form">
+      <h2 id="dialog-create-title">Criar servidor</h2>
+      <p class="modal-hint">Um servidor é o lugar do seu grupo: canais de voz, chat e convites.</p>
+      <label>Nome do servidor <input id="create-name" maxlength="40" required placeholder="Ex.: Turma da quinta"></label>
+      <p id="create-error" class="modal-error" role="alert" hidden></p>
+      <footer class="modal-foot">
+        <button type="button" class="modal-cancel">Cancelar</button>
+        <button type="submit" class="primary">Criar</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="dialog-rename" class="modal" aria-labelledby="dialog-rename-title">
+    <form method="dialog" class="modal-content" id="rename-form">
+      <h2 id="dialog-rename-title">Renomear servidor</h2>
+      <label>Novo nome <input id="rename-name" maxlength="40" required></label>
+      <p id="rename-error" class="modal-error" role="alert" hidden></p>
+      <footer class="modal-foot">
+        <button type="button" class="modal-cancel">Cancelar</button>
+        <button type="submit" class="primary">Salvar</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="dialog-invite" class="modal" aria-labelledby="dialog-invite-title">
+    <form method="dialog" class="modal-content" id="invite-form">
+      <h2 id="dialog-invite-title">Convidar para <span id="invite-server-name"></span></h2>
+      <div class="modal-row">
+        <label>Vale por
+          <select id="invite-days"><option value="1">1 dia</option><option value="7" selected>7 dias</option><option value="30">30 dias</option></select>
+        </label>
+        <label>Usos
+          <select id="invite-uses"><option value="1">1 pessoa</option><option value="10" selected>até 10 pessoas</option><option value="">sem limite</option></select>
+        </label>
+      </div>
+      <button type="submit" class="primary" id="invite-generate">Gerar link</button>
+      <div id="invite-result" class="invite-result" hidden>
+        <input id="invite-url" readonly aria-label="Link do convite">
+        <button type="button" id="invite-copy">Copiar</button>
+      </div>
+      <p id="invite-note" class="modal-hint" hidden></p>
+      <p id="invite-error" class="modal-error" role="alert" hidden></p>
+      <footer class="modal-foot">
+        <button type="button" class="modal-cancel">Fechar</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="dialog-members" class="modal" aria-labelledby="dialog-members-title">
+    <div class="modal-content">
+      <h2 id="dialog-members-title">Membros</h2>
+      <ul id="members-list" class="members-list"></ul>
+      <footer class="modal-foot">
+        <button type="button" class="modal-cancel">Fechar</button>
+      </footer>
+    </div>
+  </dialog>
+
+  <dialog id="dialog-confirm" class="modal" aria-labelledby="dialog-confirm-title">
+    <form method="dialog" class="modal-content" id="confirm-form">
+      <h2 id="dialog-confirm-title"></h2>
+      <p id="confirm-text" class="modal-hint"></p>
+      <p id="confirm-error" class="modal-error" role="alert" hidden></p>
+      <footer class="modal-foot">
+        <button type="button" class="modal-cancel">Cancelar</button>
+        <button type="submit" class="danger-btn" id="confirm-ok"></button>
+      </footer>
+    </form>
+  </dialog>
 
   <!-- Prévia antes de transmitir (js/preview-dialog.js). Nada sai para a sala enquanto está aberta. -->
   <dialog id="preview-dialog" class="preview-dialog" aria-labelledby="preview-title">
@@ -533,15 +646,14 @@
     window.addEventListener('unhandledrejection', function (e) {
       showFatal('Erro no app: ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
     });
-    // Sem o JS, o formulário recarregaria a página. O app.js substitui este handler.
-    document.getElementById('join-form').onsubmit = function (e) {
-      e.preventDefault();
-      showFatal(location.protocol === 'file:'
-        ? 'Abra pelo servidor: http://localhost:5003 (não pelo arquivo index.html).'
-        : typeof signalR === 'undefined'
+    // O app não carregou em 10 s: explica o motivo provável em vez de ficar em "Carregando…".
+    setTimeout(function () {
+      if (!document.getElementById('room-view').hidden) return;
+      if (document.getElementById('status').dataset.level === 'error') return;
+      showFatal(typeof signalR === 'undefined'
         ? 'Não foi possível carregar o SignalR do CDN (cdn.jsdelivr.net). Verifique a internet ou bloqueadores.'
         : 'O app ainda não carregou. Recarregue a página (Cmd+Shift+R).');
-    };
+    }, 10000);
   </script>
   <script src="https://cdn.jsdelivr.net/npm/@microsoft/signalr@10.0.0/dist/browser/signalr.min.js"></script>
   <script type="module" src="js/app.js"></script>

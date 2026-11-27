@@ -125,6 +125,12 @@ public sealed class InMemoryRoomRegistry : IRoomRegistry
         }
     }
 
+    public Task<IReadOnlyList<Participant>> GetByUserAsync(string userId) =>
+        Task.FromResult<IReadOnlyList<Participant>>(_byConnection.Values.Where(p => p.UserId == userId).ToList());
+
+    public Task<IReadOnlyList<Participant>> GetParticipantsAsync(string room) =>
+        Task.FromResult<IReadOnlyList<Participant>>(_byConnection.Values.Where(p => p.Room == room).ToList());
+
     public Task<Participant?> GetStreamerAsync(string room)
     {
         if (!_rooms.TryGetValue(room, out var state))

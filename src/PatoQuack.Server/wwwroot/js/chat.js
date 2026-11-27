@@ -116,12 +116,19 @@ export function createChat(options) {
   const nearBottom = () => els.scroll.scrollHeight - els.scroll.scrollTop - els.scroll.clientHeight < NEAR_BOTTOM_PX;
   const scrollToBottom = () => { els.scroll.scrollTop = els.scroll.scrollHeight; };
 
+  // Estava no fim? (atualizado a cada rolagem). Se a área do chat muda de tamanho — a faixa de
+  // miniaturas aparece, a janela muda — quem estava no fim continua no fim.
+  let pinned = true;
   els.scroll.addEventListener('scroll', () => {
-    if (nearBottom()) {
+    pinned = nearBottom();
+    if (pinned) {
       els.newBelow.hidden = true;
       markRead();
     }
   });
+  new ResizeObserver(() => {
+    if (pinned && els.scroll.clientHeight > 0) scrollToBottom();
+  }).observe(els.scroll);
   els.newBelow.addEventListener('click', () => {
     scrollToBottom();
     els.newBelow.hidden = true;
@@ -364,6 +371,7 @@ export function createChat(options) {
     /** Saiu da sala: esquece tudo. */
     reset() {
       seen = new Map();
+      pinned = true;
       oldestId = null;
       unread = 0;
       options.onUnreadChange?.(0);

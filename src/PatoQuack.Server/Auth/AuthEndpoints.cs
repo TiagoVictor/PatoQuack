@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using PatoQuack.Server.Data;
 using PatoQuack.Server.Email;
+using PatoQuack.Server.Servers;
 using PatoQuack.Server.Voice;
 
 namespace PatoQuack.Server.Auth;
@@ -14,16 +15,13 @@ public sealed record LoginRequest(string? Email, string? Password);
 public sealed record EmailRequest(string? Email);
 public sealed record ConfirmRequest(string? UserId, string? Token);
 public sealed record ResetRequest(string? UserId, string? Token, string? Password);
-public sealed record CreateInviteRequest(string? Room);
 
 public sealed record UserDto(string Id, string Email, string DisplayName, bool IsAdmin);
 public sealed record AuthStateDto(bool SetupRequired, UserDto? User);
-public sealed record InviteDto(string Code, string Url, DateTimeOffset ExpiresAt, string? Room);
-public sealed record InviteInfoDto(bool Valid, string? InviterName, string? Room);
 public sealed record ErrorDto(string Error);
 
 /// <summary>
-/// API de contas (/api/auth) e convites (/api/invites). JSON, cookie de sessão do Identity.
+/// API de contas (/api/auth). JSON, cookie de sessão do Identity. Convites: ver ServerEndpoints.
 ///
 /// Proteção contra requisição forjada (CSRF): o cookie é SameSite=Lax e toda chamada que muda
 /// estado exige o cabeçalho X-PatoQuack (um formulário de outro site não consegue enviá-lo sem
@@ -34,7 +32,6 @@ public static class AuthEndpoints
 {
     public const string CsrfHeader = "X-PatoQuack";
     public const string RateLimitPolicy = "auth";
-    private static readonly TimeSpan InviteLifetime = TimeSpan.FromDays(7);
     private static readonly SemaphoreSlim SetupLock = new(1, 1);
 
     public static void MapAuthEndpoints(this WebApplication app)
@@ -52,12 +49,9 @@ public static class AuthEndpoints
         auth.MapPost("/resend-confirmation", ResendConfirmation);
         auth.MapPost("/forgot", Forgot);
         auth.MapPost("/reset", Reset);
-
-        api.MapPost("/invites", CreateInvite).RequireAuthorization();
-        api.MapGet("/invites/{code}", GetInvite).RequireRateLimiting(RateLimitPolicy);
     }
 
-    private static async ValueTask<object?> RequireCsrfHeader(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
+    public static async ValueTask<object?> RequireCsrfHeader(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
         var request = context.HttpContext.Request;
         if (!HttpMethods.IsGet(request.Method) && request.Headers[CsrfHeader] != "1")
@@ -121,7 +115,7 @@ public static class AuthEndpoints
         }
     }
 
-    // ---- cadastro por convite -----------------------------------------------------
+    // ---- cadastro por convite de servidor ------------------------------------------
 
     private static async Task<IResult> Register(
         RegisterRequest body, HttpRequest request, AppDbContext db, UserManager<AppUser> users,
@@ -132,48 +126,46 @@ public static class AuthEndpoints
             return Error(problem);
         }
 
+        const string badInvite = "Convite inválido, vencido ou esgotado. Peça um novo a quem te convidou.";
         var now = time.GetUtcNow();
-        var invite = await db.SignupInvites.AsNoTracking().FirstOrDefaultAsync(i => i.Code == body.Invite);
-        if (invite is null || invite.UsedAt is not null || invite.ExpiresAt <= now)
+        var invite = await db.ServerInvites.AsNoTracking().FirstOrDefaultAsync(i => i.Code == body.Invite);
+        if (invite is null || !ServerEndpoints.InviteUsable(invite, now))
         {
-            return Error("Convite inválido, vencido ou já usado. Peça um novo a quem te convidou.");
+            return Error(badInvite);
         }
 
         if (await users.FindByEmailAsync(email) is not null)
         {
-            return Error("Já existe uma conta com esse e-mail. Entre com ela.");
+            return Error("Já existe uma conta com esse e-mail. Entre com ela e abra o convite de novo.");
+        }
+
+        // Reserva um uso do convite antes de criar a conta (atômico: não passa do limite).
+        if (!await ServerEndpoints.TryConsumeUseAsync(db, invite.Id))
+        {
+            return Error(badInvite);
         }
 
         var user = new AppUser { UserName = email, Email = email, DisplayName = name, CreatedAt = now };
-
-        // Reserva o convite antes de criar a conta: a atualização só vale se ninguém usou ainda,
-        // então dois cadastros simultâneos com o mesmo convite não passam os dois.
-        var reserved = await db.SignupInvites
-            .Where(i => i.Id == invite.Id && i.UsedAt == null)
-            .ExecuteUpdateAsync(s => s.SetProperty(i => i.UsedAt, now).SetProperty(i => i.UsedById, user.Id));
-        if (reserved == 0)
-        {
-            return Error("Convite inválido, vencido ou já usado. Peça um novo a quem te convidou.");
-        }
-
         var created = await users.CreateAsync(user, body.Password!);
         if (!created.Succeeded)
         {
-            // Libera o convite: a conta não foi criada (ex.: senha fraca).
-            await db.SignupInvites.Where(i => i.Id == invite.Id)
-                .ExecuteUpdateAsync(s => s.SetProperty(i => i.UsedAt, (DateTimeOffset?)null).SetProperty(i => i.UsedById, (string?)null));
+            await ServerEndpoints.ReleaseUseAsync(db, invite.Id); // a conta não foi criada (ex.: senha fraca)
             return IdentityError(created);
         }
 
-        await SendConfirmationAsync(user, request, users, mail, links, invite.Room);
+        // Já é membro do servidor do convite (só consegue entrar depois de confirmar o e-mail).
+        db.ServerMembers.Add(new ServerMember { ServerId = invite.ServerId, UserId = user.Id, Role = ServerRole.Member, JoinedAt = now });
+        await db.SaveChangesAsync();
+
+        await SendConfirmationAsync(user, request, users, mail, links, invite.ServerId);
         return Results.Ok(new { needsConfirmation = true });
     }
 
-    private static async Task SendConfirmationAsync(AppUser user, HttpRequest request, UserManager<AppUser> users, IAppEmailSender mail, AppLinks links, string? room)
+    private static async Task SendConfirmationAsync(AppUser user, HttpRequest request, UserManager<AppUser> users, IAppEmailSender mail, AppLinks links, int? serverId)
     {
         var token = AppLinks.EncodeToken(await users.GenerateEmailConfirmationTokenAsync(user));
         var link = $"{links.BaseUrl(request)}/auth.html?modo=confirmar&uid={Uri.EscapeDataString(user.Id)}&token={token}"
-                   + (room is null ? string.Empty : $"&sala={Uri.EscapeDataString(room)}");
+                   + (serverId is null ? string.Empty : $"&servidor={serverId}");
         await mail.SendAsync(new AppEmail(
             user.Email!,
             "Confirme sua conta no PatoQuack",
@@ -204,9 +196,9 @@ public static class AuthEndpoints
         var user = string.IsNullOrWhiteSpace(body.Email) ? null : await users.FindByEmailAsync(body.Email.Trim());
         if (user is { EmailConfirmed: false })
         {
-            // Mantém a sala do convite que a pessoa usou (o link reenviado leva ao mesmo lugar).
-            var room = await db.SignupInvites.Where(i => i.UsedById == user.Id).Select(i => i.Room).FirstOrDefaultAsync();
-            await SendConfirmationAsync(user, request, users, mail, links, room);
+            // Leva ao servidor do convite que a pessoa usou (o primeiro em que entrou).
+            var serverId = await db.ServerMembers.Where(m => m.UserId == user.Id).OrderBy(m => m.JoinedAt).Select(m => (int?)m.ServerId).FirstOrDefaultAsync();
+            await SendConfirmationAsync(user, request, users, mail, links, serverId);
         }
 
         return Results.Ok(); // mesma resposta exista ou não a conta
@@ -287,40 +279,6 @@ public static class AuthEndpoints
         await users.SetLockoutEndDateAsync(user, null);
         await users.ResetAccessFailedCountAsync(user);
         return Results.Ok();
-    }
-
-    // ---- convites ---------------------------------------------------------------------------
-
-    private static async Task<IResult> CreateInvite(
-        CreateInviteRequest body, ClaimsPrincipal principal, HttpRequest request, AppDbContext db,
-        UserManager<AppUser> users, AppLinks links, TimeProvider time)
-    {
-        var userId = users.GetUserId(principal)!;
-        string? room = null;
-        if (!string.IsNullOrWhiteSpace(body.Room))
-        {
-            try { room = VoiceInput.NormalizeRoom(body.Room); }
-            catch (Microsoft.AspNetCore.SignalR.HubException ex) { return Error(ex.Message); }
-        }
-
-        var now = time.GetUtcNow();
-        var invite = new SignupInvite { Code = AppLinks.NewInviteCode(), CreatedById = userId, Room = room, CreatedAt = now, ExpiresAt = now + InviteLifetime };
-        db.SignupInvites.Add(invite);
-        await db.SaveChangesAsync();
-
-        var url = $"{links.BaseUrl(request)}/auth.html?modo=cadastro&convite={invite.Code}"
-                  + (room is null ? string.Empty : $"&sala={Uri.EscapeDataString(room)}");
-        return Results.Ok(new InviteDto(invite.Code, url, invite.ExpiresAt, room));
-    }
-
-    private static async Task<IResult> GetInvite(string code, AppDbContext db, TimeProvider time)
-    {
-        var now = time.GetUtcNow();
-        var invite = await db.SignupInvites.AsNoTracking().Include(i => i.CreatedBy).FirstOrDefaultAsync(i => i.Code == code);
-        var valid = invite is not null && invite.UsedAt is null && invite.ExpiresAt > now;
-        return Results.Ok(valid
-            ? new InviteInfoDto(true, invite!.CreatedBy?.DisplayName, invite.Room)
-            : new InviteInfoDto(false, null, null));
     }
 
     // ---- validação comum ------------------------------------------------------------------------

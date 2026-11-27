@@ -1,6 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using PatoQuack.Server.Data;
 using PatoQuack.Server.Chat;
 using PatoQuack.Server.Rooms;
 
@@ -10,7 +13,8 @@ namespace PatoQuack.Server.Voice;
 /// Hub de sinalização. Não transporta áudio: só repassa offer, answer e ICE candidates
 /// entre clientes da mesma sala, e avisa quem entrou, saiu ou mutou.
 ///
-/// Exige login (cookie do Identity): o nome exibido vem da conta, não do cliente.
+/// Exige login (cookie do Identity): o nome exibido vem da conta, não do cliente. Sala = canal de
+/// voz de um servidor; entrar, ler e enviar no chat exigem ser membro do servidor.
 ///
 /// Protocolo (malha P2P):
 ///   1. Cliente chama JoinRoom e recebe a lista de quem já estava na sala.
@@ -29,6 +33,8 @@ namespace PatoQuack.Server.Voice;
 public sealed class VoiceHub(
     IRoomRegistry registry,
     IOptions<VoiceOptions> options,
+    AppDbContext db,
+    VoicePresence presence,
     IChatStore chatStore,
     ChatRateLimiter chatLimiter,
     IOptions<ChatOptions> chatOptions,
@@ -37,14 +43,27 @@ public sealed class VoiceHub(
 {
     public const string Path = "/hubs/voice";
 
-    private static string GroupName(string room) => $"room:{room}";
+    private static string GroupName(string room) => VoicePresence.GroupName(room);
 
-    public async Task<JoinRoomResultDto> JoinRoom(string room)
+    private string UserId => Context.User?.FindFirstValue(ClaimTypes.NameIdentifier)
+                             ?? throw new HubException("Sessão inválida. Entre de novo.");
+
+    /// <summary>O canal de voz existe e você é membro do servidor dele?</summary>
+    private Task<bool> CanUseVoiceChannelAsync(int channelId) =>
+        db.Channels.AnyAsync(c => c.Id == channelId && c.Kind == ChannelKind.Voice
+                                  && c.Server!.Members.Any(m => m.UserId == UserId));
+
+    public async Task<JoinRoomResultDto> JoinRoom(int channelId)
     {
-        var normalizedRoom = VoiceInput.NormalizeRoom(room);
+        if (!await CanUseVoiceChannelAsync(channelId))
+        {
+            throw new HubException("Canal não encontrado, ou você não é membro deste servidor.");
+        }
+
+        var normalizedRoom = channelId.ToString(System.Globalization.CultureInfo.InvariantCulture);
         var normalizedName = Context.User?.FindFirst(PatoQuack.Server.Auth.AppClaims.DisplayName)?.Value
                              ?? throw new HubException("Sessão inválida. Entre de novo.");
-        var self = new Participant(Context.ConnectionId, normalizedName, normalizedRoom);
+        var self = new Participant(Context.ConnectionId, normalizedName, normalizedRoom, UserId: UserId);
 
         if (await registry.GetAsync(Context.ConnectionId) is not null)
         {
@@ -77,11 +96,11 @@ public sealed class VoiceHub(
         return new JoinRoomResultDto(participants, streamer);
     }
 
-    public Task LeaveRoom() => LeaveCurrentRoomAsync();
+    public Task LeaveRoom() => presence.LeaveAsync(Context.ConnectionId);
 
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
-        await LeaveCurrentRoomAsync();
+        await presence.LeaveAsync(Context.ConnectionId);
         await base.OnDisconnectedAsync(exception);
     }
 
@@ -134,7 +153,7 @@ public sealed class VoiceHub(
             Context.ConnectionId, self.Name, self.Room);
     }
 
-    public Task StopStream() => StopCurrentStreamAsync();
+    public Task StopStream() => presence.StopStreamAsync(Context.ConnectionId);
 
     /// <summary>
     /// Avisa quem transmite na sua sala que você começou ou parou de assistir. Sem transmissão
@@ -155,17 +174,30 @@ public sealed class VoiceHub(
 
     // ---- chat de texto ----------------------------------------------------
 
-    public async Task<ChatMessageDto> SendChatMessage(string text)
+    /// <summary>Sua sala atual, conferindo de novo no banco que você ainda é membro do servidor.</summary>
+    private async Task<(Participant Self, int ChannelId)> RequireChatAccessAsync()
     {
         var self = await registry.GetAsync(Context.ConnectionId)
                    ?? throw new HubException("Você não está em nenhuma sala.");
+        var channelId = int.Parse(self.Room, System.Globalization.CultureInfo.InvariantCulture);
+        if (!await CanUseVoiceChannelAsync(channelId))
+        {
+            throw new HubException("Você não é mais membro deste servidor.");
+        }
+
+        return (self, channelId);
+    }
+
+    public async Task<ChatMessageDto> SendChatMessage(string text)
+    {
+        var (self, channelId) = await RequireChatAccessAsync();
         var normalized = ChatInput.NormalizeText(text, chatOptions.Value.MaxMessageLength);
         if (!chatLimiter.TryAcquireMessage(Context.ConnectionId))
         {
             throw new HubException("Você está enviando mensagens rápido demais. Espere alguns segundos.");
         }
 
-        var stored = await chatStore.AddAsync(self.Room, self.Name, normalized, time.GetUtcNow());
+        var stored = await chatStore.AddAsync(channelId, self.Name, normalized, time.GetUtcNow());
         var message = ChatMessageDto.From(stored, Context.ConnectionId);
         await Clients.Group(GroupName(self.Room)).ChatMessage(message);
         return message;
@@ -174,11 +206,10 @@ public sealed class VoiceHub(
     /// <summary>Uma página do histórico da sua sala: as mais recentes antes de <paramref name="beforeId"/>.</summary>
     public async Task<ChatHistoryDto> GetChatHistory(long? beforeId)
     {
-        var self = await registry.GetAsync(Context.ConnectionId)
-                   ?? throw new HubException("Você não está em nenhuma sala.");
+        var (_, channelId) = await RequireChatAccessAsync();
         var pageSize = chatOptions.Value.HistoryPageSize;
         // Pede uma a mais só para saber se ainda há mensagens antigas.
-        var page = await chatStore.GetRecentAsync(self.Room, pageSize + 1, beforeId);
+        var page = await chatStore.GetRecentAsync(channelId, pageSize + 1, beforeId);
         var hasMore = page.Count > pageSize;
         var messages = (hasMore ? page.Skip(1) : page).Select(m => ChatMessageDto.From(m)).ToList();
         return new ChatHistoryDto(messages, hasMore);
@@ -193,41 +224,6 @@ public sealed class VoiceHub(
         }
 
         await Clients.OthersInGroup(GroupName(self.Room)).UserTyping(Context.ConnectionId);
-    }
-
-    private async Task StopCurrentStreamAsync()
-    {
-        var stopped = await registry.StopStreamAsync(Context.ConnectionId);
-        if (stopped is null)
-        {
-            return;
-        }
-
-        await Clients.Group(GroupName(stopped.Room)).StreamStopped(Context.ConnectionId);
-
-        logger.LogInformation("{ConnectionId} ({Name}) parou de transmitir na sala {Room}",
-            Context.ConnectionId, stopped.Name, stopped.Room);
-    }
-
-    private async Task LeaveCurrentRoomAsync()
-    {
-        chatLimiter.Forget(Context.ConnectionId);
-
-        // Encerra a transmissão antes de sair, para a sala receber StreamStopped.
-        // (RemoveAsync também limpa o transmissor, caso um StartStream chegue no meio.)
-        await StopCurrentStreamAsync();
-
-        var removed = await registry.RemoveAsync(Context.ConnectionId);
-        if (removed is null)
-        {
-            return;
-        }
-
-        await Groups.RemoveFromGroupAsync(Context.ConnectionId, GroupName(removed.Room));
-        await Clients.Group(GroupName(removed.Room)).UserLeft(Context.ConnectionId);
-
-        logger.LogInformation("{ConnectionId} ({Name}) saiu da sala {Room}",
-            Context.ConnectionId, removed.Name, removed.Room);
     }
 
     /// <summary>
