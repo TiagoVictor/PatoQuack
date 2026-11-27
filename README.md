@@ -145,6 +145,22 @@ Roteiro manual: três abas na mesma sala, uma clica em **Transmitir tela** e as 
 vídeo. Uma quarta aba entra no meio e também vê. Feche a aba de quem transmite: o player some
 para os outros.
 
+## Chat de texto
+
+Coluna à direita da chamada (em telas menores, painel por cima do palco; no celular, tela cheia).
+As mensagens passam pelo hub (`SendChatMessage`, `GetChatHistory`, `Typing`) e ficam num arquivo
+**SQLite** (`Chat:DatabasePath`, padrão `data/patoquack.db`, fora do git), atrás da interface
+`IChatStore` — trocar por PostgreSQL é escrever outra implementação.
+
+- **Histórico:** quem entra recebe as 50 mais recentes; "Carregar mensagens anteriores" busca mais.
+- **Retenção:** mensagens com mais de `Chat:RetentionDays` (30) dias são apagadas (ao iniciar e a cada hora).
+- **Limites:** até 2.000 caracteres; 5 mensagens a cada 5 s por pessoa; texto sempre exibido como
+  texto (nunca HTML); só links `http`/`https` viram clicáveis.
+- **Extras:** "Fulano está digitando…", linhas de sistema (entrou, saiu, começou/parou de transmitir —
+  geradas no navegador, não guardadas) e som para mensagem fora da vista (opção no menu ⋯).
+- **Privacidade:** não há login. **Quem souber o nome da sala lê o histórico guardado.** Use nomes de
+  sala difíceis de adivinhar e ajuste a retenção.
+
 ## Limitações conhecidas
 
 - **Malha P2P escala mal.** Cada pessoa envia o próprio áudio para todas as outras: com N

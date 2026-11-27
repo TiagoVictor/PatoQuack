@@ -480,3 +480,6 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Banco do chat (SQLite) — dados locais, não versionar
+src/PatoQuack.Server/data/

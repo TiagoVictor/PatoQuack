@@ -1,3 +1,5 @@
+using PatoQuack.Server.Chat;
+
 namespace PatoQuack.Server.Voice;
 
 /// <summary>
@@ -15,6 +17,11 @@ public interface IVoiceClient
     Task StreamStopped(string connectionId);
     /// <summary>Só para quem transmite: alguém começou (true) ou parou (false) de assistir.</summary>
     Task ViewerChanged(string viewerConnectionId, bool watching);
+
+    /// <summary>Mensagem de chat nova na sala (inclusive para quem enviou).</summary>
+    Task ChatMessage(ChatMessageDto message);
+    /// <summary>Alguém está digitando (para os outros da sala).</summary>
+    Task UserTyping(string connectionId);
 
     Task ReceiveOffer(string fromConnectionId, SessionDescriptionDto offer);
     Task ReceiveAnswer(string fromConnectionId, SessionDescriptionDto answer);

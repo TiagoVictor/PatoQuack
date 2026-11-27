@@ -15,6 +15,7 @@ import {
 import { VoiceSignaling } from './signaling.js';
 import { SpeakingDetector } from './speaking.js';
 import { createStatsPanel } from './stats.js';
+import { createChat } from './chat.js';
 
 const LOCAL_ID = 'local';
 /** Chave do bloco da transmissão no palco (os demais blocos usam o id do participante). */
@@ -102,7 +103,11 @@ const ui = {
   optGrid: $('opt-grid'),
   optNonvideo: $('opt-nonvideo'),
   optStats: $('opt-stats'),
+  chatToggle: $('chat-toggle'),
+  chatUnread: $('chat-unread'),
+  chatClose: $('chat-close'),
   optAutowatch: $('opt-autowatch'),
+  optChatSound: $('opt-chat-sound'),
   stopWatchingBtn: $('stop-watching-btn'),
   streamPanelSub: $('stream-panel-sub'),
   menuMic: $('menu-mic'),
@@ -171,6 +176,8 @@ const preview = new VideoPreview({
 /** Cartão de prévia de quem transmite (criado no fim do módulo, depois do DOM pronto). */
 let hoverCard = null;
 const narrowScreen = window.matchMedia('(max-width: 720px)');
+/** Largura em que o chat é uma coluna própria (abaixo disso ele cobre o palco). */
+const wideScreen = window.matchMedia('(min-width: 1101px)');
 
 const state = {
   inRoom: false,
@@ -199,6 +206,8 @@ const state = {
   watching: false,
   /** Quem transmite: connectionIds de quem está assistindo (só eles recebem vídeo). */
   viewers: new Set(),
+  /** Bipe quando chega mensagem de chat que não está à vista. */
+  chatSound: readPref('voz.chatSound', true),
   /** Começar a assistir sozinho quando alguém transmite. */
   autoWatch: readPref('voz.autoWatch', false),
   /** Qualidade escolhida (resolução + FPS) por tipo de transmissão. */
@@ -1135,6 +1144,7 @@ signaling.setHandlers({
     if (!state.inRoom) return;
     upsertParticipant(id, { name });
     setStatus(`${name} entrou na sala`);
+    chat.system(`${name} entrou na sala`);
     // Não criamos a conexão aqui: quem entrou é quem manda a offer.
   },
   userLeft(id) {
@@ -1147,7 +1157,11 @@ signaling.setHandlers({
     if (state.streamer?.id === id) setStreamer(null);
     state.session?.removePeer(id);
     removeParticipant(id);
-    if (p) setStatus(`${p.name} saiu da sala`);
+    chat.forget(id);
+    if (p) {
+      setStatus(`${p.name} saiu da sala`);
+      chat.system(`${p.name} saiu da sala`);
+    }
   },
   userMuted(id, muted) {
     if (state.participants.has(id)) upsertParticipant(id, { muted });
@@ -1155,7 +1169,16 @@ signaling.setHandlers({
   streamStarted(id, name) {
     if (!state.inRoom) return;
     setStreamer({ id, name });
-    if (id !== signaling.connectionId) setStatus(`${name} começou a transmitir`);
+    if (id !== signaling.connectionId) {
+      setStatus(`${name} começou a transmitir`);
+      chat.system(`${name} começou a transmitir`);
+    }
+  },
+  chatMessage(message) {
+    if (state.inRoom) chat.onMessage(message);
+  },
+  userTyping(id) {
+    if (state.inRoom) chat.onTyping(id);
   },
   viewerChanged(id, watching) {
     if (!isLocalStreamer()) return; // a transmissão acabou no caminho
@@ -1169,7 +1192,10 @@ signaling.setHandlers({
     if (state.streamer?.id !== id) return;
     const { name } = state.streamer;
     setStreamer(null);
-    if (id !== signaling.connectionId) log(`${name} parou de transmitir`);
+    if (id !== signaling.connectionId) {
+      log(`${name} parou de transmitir`);
+      chat.system(`${name} parou de transmitir`);
+    }
   },
   receiveOffer(fromId, offer) {
     if (!state.participants.has(fromId)) upsertParticipant(fromId, {});
@@ -1257,6 +1283,7 @@ async function enterRoom() {
   await state.session.connectTo(existing.map((p) => p.connectionId));
 
   setVoiceState('connected');
+  chat.start(state.room); // histórico da sala (não segura a entrada: erros aparecem no chat)
   setStatus(existing.length === 0
     ? `Você está na sala "${state.room}". Aguardando mais alguém…`
     : `Você está na sala "${state.room}" com ${existing.length} ${existing.length === 1 ? 'pessoa' : 'pessoas'}.`);
@@ -1351,6 +1378,7 @@ async function leave({ notifyServer = true } = {}) {
   state.inRoom = false;
   preview.cancel(); // prévia aberta: encerra a captura sem transmitir
   stats.hide();
+  chat.reset();
   closeAllMenus();
   stopLevelMeter();
   state.deafened = false;
@@ -1575,6 +1603,7 @@ async function onMenuOpen(menu) {
     ui.optNonvideo.checked = state.showNonVideo;
     ui.optStats.checked = stats.isOpen;
     ui.optAutowatch.checked = state.autoWatch;
+    ui.optChatSound.checked = state.chatSound;
   } else if (menu === ui.menuCamera) {
     syncQualityControls('camera');
     await refreshCameraList();
@@ -1765,7 +1794,8 @@ document.addEventListener('keydown', (e) => {
   // campo. Checa o painel ABERTO, não só "foco dentro de um painel": logo depois de fechar, o
   // foco ainda fica um instante no botão escondido, e um segundo Esc rápido seria ignorado.
   if (e.key !== 'Escape' || state.focus === null) return;
-  if (e.target instanceof HTMLInputElement || e.target.closest?.('.menu:popover-open')) return;
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement
+    || e.target.closest?.('.menu:popover-open')) return;
   state.focus = null;
   renderStage();
 });
@@ -1789,6 +1819,92 @@ const stats = createStatsPanel({
   nameOf: (id) => state.participants.get(id)?.name ?? id,
   note: () => `Codec preferido: ${state.videoCodec?.reason ?? '—'}`,
   onClose: () => { ui.optStats.checked = false; },
+});
+// ---- chat de texto ----
+const chat = createChat({
+  els: {
+    scroll: $('chat-scroll'),
+    list: $('chat-list'),
+    more: $('chat-more'),
+    start: $('chat-start'),
+    startRoom: $('chat-start-room'),
+    newBelow: $('chat-new'),
+    typing: $('chat-typing'),
+    form: $('chat-form'),
+    input: $('chat-input'),
+    error: $('chat-error'),
+  },
+  send: (text) => signaling.sendChatMessage(text),
+  loadHistory: (beforeId) => signaling.getChatHistory(beforeId),
+  typing: () => signaling.typing(),
+  myConnectionId: () => signaling.connectionId,
+  nameOf: (id) => state.participants.get(id)?.name ?? null,
+  paintAvatar,
+  onUnreadChange: renderChatUnread,
+  onIncoming: ({ unseen }) => { if (unseen) playMessageSound(); },
+  errorMessage,
+});
+
+let lastMessageSound = 0;
+/**
+ * "Plim" curto (dois tons) para mensagem que não está à vista (chat fechado, aba escondida ou
+ * rolado para cima). Respeita a opção do menu ⋯, o "Desativar áudio" e o volume de saída.
+ */
+function playMessageSound() {
+  const ctx = state.audioContext;
+  const now = Date.now();
+  if (!state.chatSound || state.deafened || !ctx || ctx.state === 'closed' || now - lastMessageSound < 1500) return;
+  lastMessageSound = now;
+  ctx.resume().catch(() => {});
+  const t = ctx.currentTime;
+  const gain = ctx.createGain();
+  gain.connect(ctx.destination);
+  const peak = 0.08 * state.outputVolume;
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(Math.max(peak, 0.0002), t + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+  for (const [freq, start] of [[880, 0], [1320, 0.07]]) {
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    osc.connect(gain);
+    osc.start(t + start);
+    osc.stop(t + start + 0.15);
+  }
+}
+
+function renderChatUnread(count) {
+  ui.chatUnread.hidden = count === 0;
+  ui.chatUnread.textContent = count > 99 ? '99+' : String(count);
+  ui.chatToggle.setAttribute('aria-label', count ? `Chat (${count} não lidas)` : 'Chat');
+}
+
+/** Abre/fecha o chat. Na tela larga a escolha fica salva; nas menores ele começa fechado. */
+function setChatOpen(open, { save = false, focus = false } = {}) {
+  ui.roomView.classList.toggle('chat-open', open);
+  ui.chatToggle.setAttribute('aria-expanded', String(open));
+  ui.chatToggle.title = open ? 'Fechar chat' : 'Abrir chat';
+  chat.setOpen(open);
+  if (save && wideScreen.matches) writePref('voz.chatOpen', open);
+  if (open && focus) chat.focusInput();
+  if (!open && focus) ui.chatToggle.focus({ preventScroll: true });
+}
+const chatIsOpen = () => ui.roomView.classList.contains('chat-open');
+
+setChatOpen(wideScreen.matches && readPref('voz.chatOpen', true));
+// Ficou estreito: o chat viraria painel por cima do palco (cobrindo a barra de controles), então
+// fecha. Voltou a ficar largo: reabre conforme a preferência. A preferência salva não muda.
+wideScreen.addEventListener('change', () => setChatOpen(wideScreen.matches && readPref('voz.chatOpen', true)));
+ui.chatToggle.addEventListener('click', () => setChatOpen(!chatIsOpen(), { save: true, focus: true }));
+ui.chatClose.addEventListener('click', () => setChatOpen(false, { save: true, focus: true }));
+$('chat-panel').addEventListener('keydown', (e) => {
+  // Esc dentro do chat: fecha quando ele cobre o palco (telas menores).
+  if (e.key === 'Escape' && !wideScreen.matches) setChatOpen(false, { focus: true });
+});
+
+ui.optChatSound.addEventListener('change', () => {
+  state.chatSound = ui.optChatSound.checked;
+  writePref('voz.chatSound', state.chatSound);
 });
 ui.optAutowatch.addEventListener('change', () => setAutoWatch(ui.optAutowatch.checked));
 ui.stopWatchingBtn.addEventListener('click', () => setWatching(false));

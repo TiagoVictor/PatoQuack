@@ -39,6 +39,8 @@ export class VoiceSignaling {
     this.connection.on('StreamStarted', handlers.streamStarted);
     this.connection.on('StreamStopped', handlers.streamStopped);
     this.connection.on('ViewerChanged', handlers.viewerChanged);
+    this.connection.on('ChatMessage', handlers.chatMessage);
+    this.connection.on('UserTyping', handlers.userTyping);
     this.connection.on('ReceiveOffer', handlers.receiveOffer);
     this.connection.on('ReceiveAnswer', handlers.receiveAnswer);
     this.connection.on('ReceiveIceCandidate', handlers.receiveIceCandidate);
@@ -64,6 +66,12 @@ export class VoiceSignaling {
   stopStream() { return this.connection.invoke('StopStream'); }
   /** Avisa quem transmite que começamos (true) ou paramos (false) de assistir. */
   watchStream(watching) { return this.connection.invoke('WatchStream', watching); }
+
+  // Chat de texto
+  sendChatMessage(text) { return this.connection.invoke('SendChatMessage', text); }
+  /** Página do histórico (as mais recentes antes de beforeId, ou as mais recentes se null). */
+  getChatHistory(beforeId) { return this.connection.invoke('GetChatHistory', beforeId); }
+  typing() { return this.connection.invoke('Typing'); }
 
   sendOffer(targetId, offer) { return this.connection.invoke('SendOffer', targetId, toDescription(offer)); }
   sendAnswer(targetId, answer) { return this.connection.invoke('SendAnswer', targetId, toDescription(answer)); }

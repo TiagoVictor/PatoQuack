@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Options;
+using PatoQuack.Server.Chat;
 using PatoQuack.Server.Rooms;
 
 namespace PatoQuack.Server.Voice;
@@ -17,10 +18,17 @@ namespace PatoQuack.Server.Voice;
 /// pelas mesmas peer connections (transceiver de vídeo criado vazio); o hub só guarda e avisa
 /// quem está transmitindo. Quem quer ver chama WatchStream: o hub repassa só para quem
 /// transmite (ViewerChanged), que envia vídeo apenas para quem está assistindo.
+///
+/// Chat de texto: SendChatMessage guarda (IChatStore) e repassa para a sala; GetChatHistory
+/// devolve páginas do histórico da própria sala; Typing avisa os outros que alguém digita.
 /// </summary>
 public sealed class VoiceHub(
     IRoomRegistry registry,
     IOptions<VoiceOptions> options,
+    IChatStore chatStore,
+    ChatRateLimiter chatLimiter,
+    IOptions<ChatOptions> chatOptions,
+    TimeProvider time,
     ILogger<VoiceHub> logger) : Hub<IVoiceClient>
 {
     public const string Path = "/hubs/voice";
@@ -140,6 +148,48 @@ public sealed class VoiceHub(
         await Clients.Client(streamer.ConnectionId).ViewerChanged(Context.ConnectionId, watching);
     }
 
+    // ---- chat de texto ----------------------------------------------------
+
+    public async Task<ChatMessageDto> SendChatMessage(string text)
+    {
+        var self = await registry.GetAsync(Context.ConnectionId)
+                   ?? throw new HubException("Você não está em nenhuma sala.");
+        var normalized = ChatInput.NormalizeText(text, chatOptions.Value.MaxMessageLength);
+        if (!chatLimiter.TryAcquireMessage(Context.ConnectionId))
+        {
+            throw new HubException("Você está enviando mensagens rápido demais. Espere alguns segundos.");
+        }
+
+        var stored = await chatStore.AddAsync(self.Room, self.Name, normalized, time.GetUtcNow());
+        var message = ChatMessageDto.From(stored, Context.ConnectionId);
+        await Clients.Group(GroupName(self.Room)).ChatMessage(message);
+        return message;
+    }
+
+    /// <summary>Uma página do histórico da sua sala: as mais recentes antes de <paramref name="beforeId"/>.</summary>
+    public async Task<ChatHistoryDto> GetChatHistory(long? beforeId)
+    {
+        var self = await registry.GetAsync(Context.ConnectionId)
+                   ?? throw new HubException("Você não está em nenhuma sala.");
+        var pageSize = chatOptions.Value.HistoryPageSize;
+        // Pede uma a mais só para saber se ainda há mensagens antigas.
+        var page = await chatStore.GetRecentAsync(self.Room, pageSize + 1, beforeId);
+        var hasMore = page.Count > pageSize;
+        var messages = (hasMore ? page.Skip(1) : page).Select(m => ChatMessageDto.From(m)).ToList();
+        return new ChatHistoryDto(messages, hasMore);
+    }
+
+    public async Task Typing()
+    {
+        var self = await registry.GetAsync(Context.ConnectionId);
+        if (self is null || !chatLimiter.TryAcquireTyping(Context.ConnectionId))
+        {
+            return;
+        }
+
+        await Clients.OthersInGroup(GroupName(self.Room)).UserTyping(Context.ConnectionId);
+    }
+
     private async Task StopCurrentStreamAsync()
     {
         var stopped = await registry.StopStreamAsync(Context.ConnectionId);
@@ -156,6 +206,8 @@ public sealed class VoiceHub(
 
     private async Task LeaveCurrentRoomAsync()
     {
+        chatLimiter.Forget(Context.ConnectionId);
+
         // Encerra a transmissão antes de sair, para a sala receber StreamStopped.
         // (RemoveAsync também limpa o transmissor, caso um StartStream chegue no meio.)
         await StopCurrentStreamAsync();

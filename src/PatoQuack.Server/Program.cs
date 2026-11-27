@@ -1,3 +1,4 @@
+using PatoQuack.Server.Chat;
 using PatoQuack.Server.Rooms;
 using PatoQuack.Server.Voice;
 
@@ -9,9 +10,20 @@ builder.Services.Configure<VoiceOptions>(builder.Configuration.GetSection(VoiceO
 // e adicione .AddStackExchangeRedis(...) no AddSignalR (backplane).
 builder.Services.AddSingleton<IRoomRegistry, InMemoryRoomRegistry>();
 
+// Chat de texto: mensagens num arquivo SQLite (caminho relativo = relativo à pasta do app).
+builder.Services.Configure<ChatOptions>(builder.Configuration.GetSection(ChatOptions.SectionName));
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<IChatStore>(sp =>
+{
+    var path = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<ChatOptions>>().Value.DatabasePath;
+    return new SqliteChatStore(Path.IsPathRooted(path) ? path : Path.Combine(builder.Environment.ContentRootPath, path));
+});
+builder.Services.AddSingleton<ChatRateLimiter>();
+builder.Services.AddHostedService<ChatRetentionService>();
+
 builder.Services.AddSignalR(options =>
 {
-    // Mensagens de sinalização são pequenas (SDP de áudio fica em poucos KB).
+    // Sinalização é pequena (SDP de áudio fica em poucos KB) e o chat limita a 2.000 caracteres.
     options.MaximumReceiveMessageSize = 32 * 1024;
     options.EnableDetailedErrors = builder.Environment.IsDevelopment();
 });

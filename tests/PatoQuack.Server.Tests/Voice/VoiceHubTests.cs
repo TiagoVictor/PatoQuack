@@ -1,6 +1,3 @@
-using System.Threading.Channels;
-using Microsoft.AspNetCore.Http.Connections;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
 using PatoQuack.Server.Voice;
@@ -10,10 +7,10 @@ namespace PatoQuack.Server.Tests.Voice;
 /// <summary>
 /// Testes de integração: sobem o servidor em memória e conectam clientes SignalR reais.
 /// </summary>
-public sealed class VoiceHubTests(WebApplicationFactory<Program> factory)
-    : IClassFixture<WebApplicationFactory<Program>>, IAsyncDisposable
+public sealed class VoiceHubTests(PatoQuackFactory factory)
+    : IClassFixture<PatoQuackFactory>, IAsyncDisposable
 {
-    private readonly List<TestClient> _clients = [];
+    private readonly List<HubTestClient> _clients = [];
 
     // Cada teste usa uma sala própria, porque o registro é compartilhado pela fixture.
     private readonly string _room = $"t-{Guid.NewGuid():N}"[..20];
@@ -266,19 +263,9 @@ public sealed class VoiceHubTests(WebApplicationFactory<Program> factory)
 
     // ---- infraestrutura --------------------------------------------------
 
-    private async Task<TestClient> ConnectAsync()
+    private async Task<HubTestClient> ConnectAsync()
     {
-        var server = factory.Server;
-        var connection = new HubConnectionBuilder()
-            .WithUrl(new Uri(server.BaseAddress, VoiceHub.Path), options =>
-            {
-                options.Transports = HttpTransportType.LongPolling;
-                options.HttpMessageHandlerFactory = _ => server.CreateHandler();
-            })
-            .Build();
-
-        var client = new TestClient(connection);
-        await connection.StartAsync();
+        var client = await HubTestClient.ConnectAsync(factory);
         _clients.Add(client);
         return client;
     }
@@ -288,51 +275,6 @@ public sealed class VoiceHubTests(WebApplicationFactory<Program> factory)
         foreach (var client in _clients)
         {
             await client.Connection.DisposeAsync();
-        }
-    }
-
-    private sealed class TestClient
-    {
-        private readonly Dictionary<string, Channel<object?[]>> _events = [];
-
-        public TestClient(HubConnection connection)
-        {
-            Connection = connection;
-            Listen("UserJoined", typeof(string), typeof(string));
-            Listen("UserLeft", typeof(string));
-            Listen("UserMuted", typeof(string), typeof(bool));
-            Listen("StreamStarted", typeof(string), typeof(string));
-            Listen("StreamStopped", typeof(string));
-            Listen("ViewerChanged", typeof(string), typeof(bool));
-            Listen("ReceiveOffer", typeof(string), typeof(SessionDescriptionDto));
-            Listen("ReceiveAnswer", typeof(string), typeof(SessionDescriptionDto));
-            Listen("ReceiveIceCandidate", typeof(string), typeof(IceCandidateDto));
-        }
-
-        public HubConnection Connection { get; }
-        public string Id => Connection.ConnectionId!;
-
-        public async Task<IReadOnlyList<ParticipantDto>> JoinAsync(string room, string name) =>
-            (await JoinWithStreamAsync(room, name)).Participants;
-
-        public Task<JoinRoomResultDto> JoinWithStreamAsync(string room, string name) =>
-            Connection.InvokeAsync<JoinRoomResultDto>("JoinRoom", room, name);
-
-        public async Task<object?[]> NextAsync(string method)
-        {
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            return await _events[method].Reader.ReadAsync(timeout.Token);
-        }
-
-        private void Listen(string method, params Type[] types)
-        {
-            var channel = Channel.CreateUnbounded<object?[]>();
-            _events[method] = channel;
-            Connection.On(method, types, args =>
-            {
-                channel.Writer.TryWrite(args);
-                return Task.CompletedTask;
-            });
         }
     }
 }
