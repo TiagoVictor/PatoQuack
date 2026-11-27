@@ -1,6 +1,8 @@
 // Orquestra a UI: microfone, sinalização, sessão de voz e lista de participantes.
 
-import { AUDIO_CONSTRAINTS, HUB_URL, ICE_SERVERS } from './config.js';
+import {
+  AUDIO_CONSTRAINTS, CAMERA_CONSTRAINTS, HUB_URL, ICE_SERVERS, SCREEN_CONSTRAINTS, VIDEO_MAX_BITRATE,
+} from './config.js';
 import { MeshVoiceSession } from './mesh.js';
 import { VoiceSignaling } from './signaling.js';
 import { SpeakingDetector } from './speaking.js';
@@ -34,6 +36,12 @@ const ui = {
   status: $('status'),
   log: $('log'),
   audioSink: $('remote-audio'),
+  streamView: $('stream-view'),
+  streamVideo: $('stream-video'),
+  streamLabel: $('stream-label'),
+  screenBtn: $('screen-btn'),
+  cameraBtn: $('camera-btn'),
+  stopStreamBtn: $('stop-stream-btn'),
 };
 
 const signaling = new VoiceSignaling(HUB_URL);
@@ -49,6 +57,14 @@ const state = {
   /** @type {MeshVoiceSession | null} */ session: null,
   /** @type {Map<string, {name: string, muted: boolean, conn: string, speaking: boolean, audio?: HTMLAudioElement}>} */
   participants: new Map(),
+  /** Quem transmite vídeo na sala (connectionId do servidor), ou null. @type {{id: string, name: string} | null} */
+  streamer: null,
+  /** Nossa transmissão (tela ou câmera), se estivermos transmitindo. @type {MediaStream | null} */
+  localVideo: null,
+  /** Pedido de transmissão em andamento (seletor de tela aberto, StartStream pendente). */
+  startingStream: false,
+  /** Track de vídeo recebido de cada peer (vazio até alguém transmitir). @type {Map<string, MediaStreamTrack>} */
+  remoteVideo: new Map(),
 };
 
 // ---- status ---------------------------------------------------------------
@@ -92,6 +108,7 @@ function removeParticipant(id) {
   }
   state.speaking?.unwatch(id);
   state.participants.delete(id);
+  state.remoteVideo.delete(id);
   render();
 }
 
@@ -136,6 +153,123 @@ function render() {
   ui.muteBtn.textContent = state.muted ? 'Desmutar' : 'Mutar';
   ui.muteBtn.classList.toggle('active', state.muted);
   ui.muteBtn.setAttribute('aria-pressed', String(state.muted));
+  renderStream();
+}
+
+// ---- transmissão de vídeo -------------------------------------------------
+
+const isLocalStreamer = () => state.streamer !== null && state.streamer.id === signaling.connectionId;
+
+function renderStream() {
+  const streamer = state.streamer;
+  const someoneElse = streamer !== null && !isLocalStreamer();
+  ui.screenBtn.hidden = ui.cameraBtn.hidden = state.localVideo !== null;
+  ui.stopStreamBtn.hidden = state.localVideo === null;
+  ui.screenBtn.disabled = ui.cameraBtn.disabled = someoneElse || state.startingStream;
+  ui.screenBtn.title = ui.cameraBtn.title = someoneElse ? `${streamer.name} já está transmitindo` : '';
+
+  // Quem transmite vê a própria prévia; os demais, o track recebido daquele peer.
+  const source = !streamer ? null
+    : isLocalStreamer() ? state.localVideo
+    : state.remoteVideo.get(streamer.id) ? new MediaStream([state.remoteVideo.get(streamer.id)]) : null;
+
+  ui.streamView.hidden = !streamer;
+  ui.streamLabel.textContent = !streamer ? '' : isLocalStreamer() ? 'Você está transmitindo' : `${streamer.name} está transmitindo`;
+
+  const current = ui.streamVideo.srcObject;
+  const sameSource = current === source
+    || (current && source && current.getVideoTracks()[0] === source.getVideoTracks()[0]);
+  if (!sameSource) {
+    ui.streamVideo.srcObject = source;
+    if (source) ui.streamVideo.play().catch(() => {});
+  }
+}
+
+function setStreamer(streamer) {
+  state.streamer = streamer;
+  renderStream();
+}
+
+function onRemoteVideo(id, track) {
+  state.remoteVideo.set(id, track);
+  if (state.streamer?.id === id) renderStream();
+}
+
+/** @param {'screen' | 'camera'} kind */
+async function startStream(kind) {
+  if (!state.session || state.localVideo || state.startingStream) return;
+  if (state.streamer && !isLocalStreamer()) {
+    setStatus(`${state.streamer.name} já está transmitindo.`, 'warn');
+    return;
+  }
+
+  state.startingStream = true;
+  renderStream();
+  let media;
+  try {
+    // Pede a mídia primeiro (o seletor precisa do clique); só depois reserva a vez no servidor,
+    // para não avisar a sala de uma transmissão que o usuário cancelou no seletor.
+    media = kind === 'screen'
+      ? await navigator.mediaDevices.getDisplayMedia({ video: SCREEN_CONSTRAINTS, audio: false })
+      : await navigator.mediaDevices.getUserMedia({ video: CAMERA_CONSTRAINTS, audio: false });
+  } catch (err) {
+    state.startingStream = false;
+    renderStream();
+    if (err?.name !== 'NotAllowedError' && err?.name !== 'AbortError') {
+      setStatus(`Não foi possível capturar ${kind === 'screen' ? 'a tela' : 'a câmera'}: ${errorMessage(err)}`, 'error');
+    }
+    return;
+  }
+
+  const [track] = media.getVideoTracks();
+  track.contentHint = kind === 'screen' ? 'detail' : 'motion';
+
+  try {
+    await signaling.startStream();
+  } catch (err) {
+    media.getTracks().forEach((t) => t.stop());
+    state.startingStream = false;
+    renderStream();
+    setStatus(`Não foi possível transmitir: ${errorMessage(err)}`, 'error');
+    return;
+  }
+
+  state.startingStream = false;
+  if (!state.inRoom || !state.session) {
+    // Saímos da sala enquanto o servidor respondia.
+    media.getTracks().forEach((t) => t.stop());
+    return;
+  }
+
+  state.localVideo = media;
+  // "Parar compartilhamento" na barra do navegador (ou a câmera desconectada) também encerra.
+  track.onended = () => stopStream();
+  // StreamStarted também chega para nós; marcamos já para a prévia aparecer sem esperar.
+  setStreamer({ id: signaling.connectionId, name: state.name });
+  await state.session.setVideoTrack(track);
+  setStatus(`Você está transmitindo ${kind === 'screen' ? 'a tela' : 'a câmera'}.`);
+}
+
+async function stopStream({ notifyServer = true } = {}) {
+  const media = state.localVideo;
+  if (!media) return;
+  state.localVideo = null;
+
+  for (const t of media.getTracks()) {
+    t.onended = null;
+    t.stop();
+  }
+  await state.session?.setVideoTrack(null);
+  if (isLocalStreamer()) setStreamer(null);
+  else renderStream();
+
+  if (notifyServer && signaling.isConnected) {
+    try {
+      await signaling.stopStream();
+    } catch (err) {
+      log(`Não foi possível avisar a sala do fim da transmissão: ${errorMessage(err)}`, 'warn');
+    }
+  }
 }
 
 function attachRemoteStream(id, stream) {
@@ -165,12 +299,24 @@ signaling.setHandlers({
   },
   userLeft(id) {
     const p = state.participants.get(id);
+    if (state.streamer?.id === id) setStreamer(null);
     state.session?.removePeer(id);
     removeParticipant(id);
     if (p) log(`${p.name} saiu da sala`);
   },
   userMuted(id, muted) {
     if (state.participants.has(id)) upsertParticipant(id, { muted });
+  },
+  streamStarted(id, name) {
+    if (!state.inRoom) return;
+    setStreamer({ id, name });
+    if (id !== signaling.connectionId) setStatus(`${name} começou a transmitir`);
+  },
+  streamStopped(id) {
+    if (state.streamer?.id !== id) return;
+    const { name } = state.streamer;
+    setStreamer(null);
+    if (id !== signaling.connectionId) log(`${name} parou de transmitir`);
   },
   receiveOffer(fromId, offer) {
     if (!state.participants.has(fromId)) upsertParticipant(fromId, {});
@@ -221,6 +367,8 @@ function createSession() {
       if (conn === 'connected') log(`Áudio conectado com ${state.participants.get(id).name}`);
     },
     onRemoteStream: attachRemoteStream,
+    onRemoteVideo,
+    videoMaxBitrate: VIDEO_MAX_BITRATE,
     onPeerFailed(id) {
       const name = state.participants.get(id)?.name ?? id;
       setStatus(
@@ -239,7 +387,9 @@ async function enterRoom() {
   resetSession();
   state.session = createSession();
 
-  const existing = await signaling.joinRoom(state.room, state.name);
+  const { participants: existing, streamer } = await signaling.joinRoom(state.room, state.name);
+  // StreamStarted pode ter chegado antes da resposta; a resposta é o retrato no momento da entrada.
+  if (streamer && !state.streamer) setStreamer({ id: streamer.connectionId, name: streamer.name });
   for (const p of existing) {
     upsertParticipant(p.connectionId, { name: p.name, muted: p.muted });
   }
@@ -319,9 +469,14 @@ function setBusy(busy) {
 }
 
 function resetSession() {
+  // O servidor encerra a transmissão sozinho quando saímos ou caímos; aqui só soltamos a captura.
+  stopStream({ notifyServer: false });
   state.session?.close();
   state.session = null;
+  state.streamer = null;
+  state.remoteVideo.clear();
   clearRemoteParticipants();
+  renderStream();
 }
 
 async function leave({ notifyServer = true } = {}) {
@@ -385,6 +540,9 @@ function restore() {
 ui.joinForm.onsubmit = join; // substitui o handler de segurança do index.html
 ui.muteBtn.addEventListener('click', toggleMute);
 ui.leaveBtn.addEventListener('click', () => leave());
+ui.screenBtn.addEventListener('click', () => startStream('screen'));
+ui.cameraBtn.addEventListener('click', () => startStream('camera'));
+ui.stopStreamBtn.addEventListener('click', () => stopStream());
 window.addEventListener('pagehide', () => { if (state.inRoom) signaling.stop(); });
 
 restore();

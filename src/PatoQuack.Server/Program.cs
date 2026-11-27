@@ -19,7 +19,13 @@ builder.Services.AddSignalR(options =>
 var app = builder.Build();
 
 app.UseDefaultFiles();
-app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    // Sem isto o navegador pode reaproveitar um app.js antigo do cache (heurística por
+    // Last-Modified) e falar um protocolo diferente do hub. "no-cache" = sempre revalida
+    // com o ETag: se nada mudou, a resposta é um 304 rápido.
+    OnPrepareResponse = ctx => ctx.Context.Response.Headers.CacheControl = "no-cache",
+});
 
 app.MapHub<VoiceHub>(VoiceHub.Path);
 

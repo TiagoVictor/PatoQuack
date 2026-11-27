@@ -33,7 +33,16 @@
         <h2><span class="hash">#</span><span id="room-name"></span></h2>
         <span id="count" class="muted-text"></span>
       </div>
+      <figure id="stream-view" class="stream" hidden>
+        <video id="stream-video" autoplay playsinline muted></video>
+        <figcaption><span class="live-dot" aria-hidden="true"></span><span id="stream-label"></span></figcaption>
+      </figure>
       <ul id="participants" class="participants" aria-live="polite"></ul>
+      <div class="controls stream-controls">
+        <button type="button" id="screen-btn">Transmitir tela</button>
+        <button type="button" id="camera-btn">Transmitir câmera</button>
+        <button type="button" id="stop-stream-btn" class="active" hidden>Parar transmissão</button>
+      </div>
       <div class="controls">
         <button type="button" id="mute-btn" aria-pressed="false">Mutar</button>
         <button type="button" id="leave-btn" class="danger">Sair</button>

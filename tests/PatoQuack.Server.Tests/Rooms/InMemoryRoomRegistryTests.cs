@@ -101,4 +101,38 @@ public class InMemoryRoomRegistryTests
         Assert.Equal(JoinStatus.Joined, last.Status);
         Assert.Empty(last.ExistingParticipants);
     }
+
+    [Fact]
+    public async Task Stream_is_exclusive_per_room_and_cleared_on_remove()
+    {
+        await _registry.TryJoinAsync(new Participant("a", "Ana", "sala"), 6);
+        await _registry.TryJoinAsync(new Participant("b", "Bia", "sala"), 6);
+
+        Assert.Equal(StreamStartStatus.Started, (await _registry.TryStartStreamAsync("a")).Status);
+        var second = await _registry.TryStartStreamAsync("b");
+        Assert.Equal(StreamStartStatus.AlreadyStreaming, second.Status);
+        Assert.Equal("a", second.CurrentStreamer?.ConnectionId);
+
+        var joined = await _registry.TryJoinAsync(new Participant("c", "Caio", "sala"), 6);
+        Assert.Equal("a", joined.Streamer?.ConnectionId);
+
+        Assert.Null(await _registry.StopStreamAsync("b"));
+        await _registry.RemoveAsync("a");
+        Assert.Equal(StreamStartStatus.Started, (await _registry.TryStartStreamAsync("b")).Status);
+        Assert.Equal(StreamStartStatus.NotInRoom, (await _registry.TryStartStreamAsync("zz")).Status);
+    }
+
+    [Fact]
+    public async Task Concurrent_stream_starts_allow_only_one()
+    {
+        for (var i = 0; i < 6; i++)
+        {
+            await _registry.TryJoinAsync(new Participant($"p{i}", $"P{i}", "sala"), 6);
+        }
+
+        var results = await Task.WhenAll(Enumerable.Range(0, 6)
+            .Select(i => Task.Run(() => _registry.TryStartStreamAsync($"p{i}"))));
+
+        Assert.Single(results, r => r.Status == StreamStartStatus.Started);
+    }
 }

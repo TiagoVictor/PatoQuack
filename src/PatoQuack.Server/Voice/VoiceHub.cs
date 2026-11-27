@@ -12,6 +12,10 @@ namespace PatoQuack.Server.Voice;
 ///   1. Cliente chama JoinRoom e recebe a lista de quem já estava na sala.
 ///   2. Quem ENTROU manda uma offer para cada um da lista. Quem já estava só responde.
 ///   3. ICE candidates são trocados nos dois sentidos até a conexão fechar.
+///
+/// Transmissão de vídeo: no máximo uma pessoa por sala (StartStream/StopStream). O vídeo vai
+/// pelas mesmas peer connections (transceiver de vídeo criado vazio); o hub só guarda e avisa
+/// quem está transmitindo.
 /// </summary>
 public sealed class VoiceHub(
     IRoomRegistry registry,
@@ -22,7 +26,7 @@ public sealed class VoiceHub(
 
     private static string GroupName(string room) => $"room:{room}";
 
-    public async Task<IReadOnlyList<ParticipantDto>> JoinRoom(string room, string name)
+    public async Task<JoinRoomResultDto> JoinRoom(string room, string name)
     {
         var normalizedRoom = VoiceInput.NormalizeRoom(room);
         var normalizedName = VoiceInput.NormalizeName(name);
@@ -52,9 +56,11 @@ public sealed class VoiceHub(
         logger.LogInformation("{ConnectionId} ({Name}) entrou na sala {Room} ({Count} pessoas)",
             Context.ConnectionId, normalizedName, normalizedRoom, result.ExistingParticipants.Count + 1);
 
-        return result.ExistingParticipants
+        var participants = result.ExistingParticipants
             .Select(p => new ParticipantDto(p.ConnectionId, p.Name, p.Muted))
             .ToList();
+        var streamer = result.Streamer is { } s ? new StreamerDto(s.ConnectionId, s.Name) : null;
+        return new JoinRoomResultDto(participants, streamer);
     }
 
     public Task LeaveRoom() => LeaveCurrentRoomAsync();
@@ -94,8 +100,48 @@ public sealed class VoiceHub(
         await Clients.OthersInGroup(GroupName(self.Room)).UserMuted(Context.ConnectionId, muted);
     }
 
+    public async Task StartStream()
+    {
+        var result = await registry.TryStartStreamAsync(Context.ConnectionId);
+        switch (result.Status)
+        {
+            case StreamStartStatus.NotInRoom:
+                throw new HubException("Você não está em nenhuma sala.");
+            case StreamStartStatus.AlreadyStreaming:
+                throw new HubException(result.CurrentStreamer?.ConnectionId == Context.ConnectionId
+                    ? "Você já está transmitindo."
+                    : $"{result.CurrentStreamer?.Name ?? "Outra pessoa"} já está transmitindo nesta sala.");
+        }
+
+        var self = result.Self!;
+        await Clients.Group(GroupName(self.Room)).StreamStarted(Context.ConnectionId, self.Name);
+
+        logger.LogInformation("{ConnectionId} ({Name}) começou a transmitir na sala {Room}",
+            Context.ConnectionId, self.Name, self.Room);
+    }
+
+    public Task StopStream() => StopCurrentStreamAsync();
+
+    private async Task StopCurrentStreamAsync()
+    {
+        var stopped = await registry.StopStreamAsync(Context.ConnectionId);
+        if (stopped is null)
+        {
+            return;
+        }
+
+        await Clients.Group(GroupName(stopped.Room)).StreamStopped(Context.ConnectionId);
+
+        logger.LogInformation("{ConnectionId} ({Name}) parou de transmitir na sala {Room}",
+            Context.ConnectionId, stopped.Name, stopped.Room);
+    }
+
     private async Task LeaveCurrentRoomAsync()
     {
+        // Encerra a transmissão antes de sair, para a sala receber StreamStopped.
+        // (RemoveAsync também limpa o transmissor, caso um StartStream chegue no meio.)
+        await StopCurrentStreamAsync();
+
         var removed = await registry.RemoveAsync(Context.ConnectionId);
         if (removed is null)
         {

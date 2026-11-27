@@ -11,6 +11,9 @@ public interface IVoiceClient
     Task UserLeft(string connectionId);
     Task UserMuted(string connectionId, bool muted);
 
+    Task StreamStarted(string connectionId, string name);
+    Task StreamStopped(string connectionId);
+
     Task ReceiveOffer(string fromConnectionId, SessionDescriptionDto offer);
     Task ReceiveAnswer(string fromConnectionId, SessionDescriptionDto answer);
     Task ReceiveIceCandidate(string fromConnectionId, IceCandidateDto candidate);
@@ -18,6 +21,12 @@ public interface IVoiceClient
 
 /// <summary>Participante como o cliente o vê.</summary>
 public sealed record ParticipantDto(string ConnectionId, string Name, bool Muted);
+
+/// <summary>Quem está transmitindo vídeo na sala.</summary>
+public sealed record StreamerDto(string ConnectionId, string Name);
+
+/// <summary>Resposta do <c>JoinRoom</c>: quem já estava na sala e quem transmite (ou null).</summary>
+public sealed record JoinRoomResultDto(IReadOnlyList<ParticipantDto> Participants, StreamerDto? Streamer);
 
 /// <summary>Equivalente ao <c>RTCSessionDescriptionInit</c> do navegador.</summary>
 public sealed record SessionDescriptionDto(string Type, string Sdp);

@@ -140,6 +140,94 @@ public sealed class VoiceHubTests(WebApplicationFactory<Program> factory)
         Assert.Equal([bia.Id, true], await ana.NextAsync("UserMuted"));
     }
 
+    [Fact]
+    public async Task StartStream_notifies_room_and_new_joiners_see_the_streamer()
+    {
+        var ana = await ConnectAsync();
+        var bia = await ConnectAsync();
+        await ana.JoinAsync(_room, "Ana");
+        await bia.JoinAsync(_room, "Bia");
+
+        await ana.Connection.InvokeAsync("StartStream");
+
+        Assert.Equal([ana.Id, "Ana"], await bia.NextAsync("StreamStarted"));
+        Assert.Equal([ana.Id, "Ana"], await ana.NextAsync("StreamStarted"));
+
+        var caio = await ConnectAsync();
+        var joined = await caio.JoinWithStreamAsync(_room, "Caio");
+        Assert.Equal(new StreamerDto(ana.Id, "Ana"), joined.Streamer);
+    }
+
+    [Fact]
+    public async Task Only_one_stream_per_room()
+    {
+        var ana = await ConnectAsync();
+        var bia = await ConnectAsync();
+        var other = await ConnectAsync();
+        await ana.JoinAsync(_room, "Ana");
+        await bia.JoinAsync(_room, "Bia");
+        await other.JoinAsync(_room + "-x", "Outro");
+
+        await ana.Connection.InvokeAsync("StartStream");
+        var ex = await Assert.ThrowsAsync<HubException>(() => bia.Connection.InvokeAsync("StartStream"));
+        Assert.Contains("Ana já está transmitindo", ex.Message);
+
+        // Outra sala não é afetada.
+        await other.Connection.InvokeAsync("StartStream");
+    }
+
+    [Fact]
+    public async Task StartStream_without_room_is_rejected()
+    {
+        var client = await ConnectAsync();
+        await Assert.ThrowsAsync<HubException>(() => client.Connection.InvokeAsync("StartStream"));
+    }
+
+    [Fact]
+    public async Task StopStream_notifies_room_and_frees_the_slot()
+    {
+        var ana = await ConnectAsync();
+        var bia = await ConnectAsync();
+        await ana.JoinAsync(_room, "Ana");
+        await bia.JoinAsync(_room, "Bia");
+
+        await ana.Connection.InvokeAsync("StartStream");
+        Assert.Equal([ana.Id, "Ana"], await ana.NextAsync("StreamStarted"));
+        await ana.Connection.InvokeAsync("StopStream");
+        Assert.Equal([ana.Id], await bia.NextAsync("StreamStopped"));
+
+        await bia.Connection.InvokeAsync("StartStream");
+        Assert.Equal([bia.Id, "Bia"], await ana.NextAsync("StreamStarted"));
+
+        // Parar sem estar transmitindo não avisa ninguém.
+        await ana.Connection.InvokeAsync("StopStream");
+        var caio = await ConnectAsync();
+        Assert.Equal(bia.Id, (await caio.JoinWithStreamAsync(_room, "Caio")).Streamer?.ConnectionId);
+    }
+
+    [Fact]
+    public async Task Leaving_or_disconnecting_ends_the_stream()
+    {
+        var ana = await ConnectAsync();
+        var bia = await ConnectAsync();
+        await ana.JoinAsync(_room, "Ana");
+        await bia.JoinAsync(_room, "Bia");
+
+        await ana.Connection.InvokeAsync("StartStream");
+        await ana.Connection.InvokeAsync("LeaveRoom");
+        Assert.Equal([ana.Id], await bia.NextAsync("StreamStopped"));
+
+        await bia.Connection.InvokeAsync("StartStream");
+        var biaId = bia.Id;
+        var caio = await ConnectAsync();
+        await caio.JoinAsync(_room, "Caio");
+        await bia.Connection.StopAsync();
+        Assert.Equal([biaId], await caio.NextAsync("StreamStopped"));
+
+        var dani = await ConnectAsync();
+        Assert.Null((await dani.JoinWithStreamAsync(_room, "Dani")).Streamer);
+    }
+
     // ---- infraestrutura --------------------------------------------------
 
     private async Task<TestClient> ConnectAsync()
@@ -177,6 +265,8 @@ public sealed class VoiceHubTests(WebApplicationFactory<Program> factory)
             Listen("UserJoined", typeof(string), typeof(string));
             Listen("UserLeft", typeof(string));
             Listen("UserMuted", typeof(string), typeof(bool));
+            Listen("StreamStarted", typeof(string), typeof(string));
+            Listen("StreamStopped", typeof(string));
             Listen("ReceiveOffer", typeof(string), typeof(SessionDescriptionDto));
             Listen("ReceiveAnswer", typeof(string), typeof(SessionDescriptionDto));
             Listen("ReceiveIceCandidate", typeof(string), typeof(IceCandidateDto));
@@ -185,8 +275,11 @@ public sealed class VoiceHubTests(WebApplicationFactory<Program> factory)
         public HubConnection Connection { get; }
         public string Id => Connection.ConnectionId!;
 
-        public Task<List<ParticipantDto>> JoinAsync(string room, string name) =>
-            Connection.InvokeAsync<List<ParticipantDto>>("JoinRoom", room, name);
+        public async Task<IReadOnlyList<ParticipantDto>> JoinAsync(string room, string name) =>
+            (await JoinWithStreamAsync(room, name)).Participants;
+
+        public Task<JoinRoomResultDto> JoinWithStreamAsync(string room, string name) =>
+            Connection.InvokeAsync<JoinRoomResultDto>("JoinRoom", room, name);
 
         public async Task<object?[]> NextAsync(string method)
         {

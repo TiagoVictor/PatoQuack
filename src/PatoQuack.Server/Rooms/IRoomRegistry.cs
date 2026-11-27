@@ -22,7 +22,31 @@ public interface IRoomRegistry
 
     /// <summary>Atualiza o estado de mute. Retorna o participante atualizado, ou null se não estiver em sala.</summary>
     Task<Participant?> SetMutedAsync(string connectionId, bool muted);
+
+    /// <summary>
+    /// Marca a conexão como quem transmite vídeo na sala dela. No máximo uma por sala:
+    /// a checagem e a marcação são atômicas.
+    /// </summary>
+    Task<StreamStartResult> TryStartStreamAsync(string connectionId);
+
+    /// <summary>
+    /// Encerra a transmissão da conexão. Retorna o participante se ele estava transmitindo,
+    /// ou null caso contrário (não transmitia, ou não está em sala).
+    /// </summary>
+    Task<Participant?> StopStreamAsync(string connectionId);
 }
+
+public enum StreamStartStatus
+{
+    Started,
+    NotInRoom,
+    AlreadyStreaming,
+}
+
+/// <param name="Status">Resultado.</param>
+/// <param name="Self">Quem pediu para transmitir (null se não estiver em sala).</param>
+/// <param name="CurrentStreamer">Quem já transmite, quando o status é <see cref="StreamStartStatus.AlreadyStreaming"/>.</param>
+public sealed record StreamStartResult(StreamStartStatus Status, Participant? Self, Participant? CurrentStreamer = null);
 
 public enum JoinStatus
 {
@@ -31,7 +55,8 @@ public enum JoinStatus
     AlreadyInRoom,
 }
 
-public sealed record JoinResult(JoinStatus Status, IReadOnlyList<Participant> ExistingParticipants)
+/// <param name="Streamer">Quem transmite vídeo na sala no momento da entrada, ou null.</param>
+public sealed record JoinResult(JoinStatus Status, IReadOnlyList<Participant> ExistingParticipants, Participant? Streamer = null)
 {
     public static JoinResult Full { get; } = new(JoinStatus.RoomFull, []);
     public static JoinResult AlreadyInRoom { get; } = new(JoinStatus.AlreadyInRoom, []);

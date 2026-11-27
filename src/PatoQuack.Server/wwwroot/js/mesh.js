@@ -6,6 +6,10 @@
 // Para migrar para um SFU (ex.: LiveKit), crie outra classe com a mesma "interface"
 // (connectTo, handleOffer/Answer/IceCandidate, removePeer, setMuted, close e os mesmos eventos)
 // e troque a instância em app.js. A UI não precisa saber qual topologia está em uso.
+//
+// Vídeo (transmissão de tela/câmera): toda conexão nasce com um transceiver de vídeo vazio,
+// em sendrecv. Começar ou parar de transmitir é só sender.replaceTrack(track | null), sem
+// renegociar. Quem transmite aplica o track atual em toda conexão nova (setVideoTrack).
 
 export class MeshVoiceSession {
   /**
@@ -15,17 +19,24 @@ export class MeshVoiceSession {
    *   iceServers: RTCIceServer[],
    *   onPeerState?: (id: string, state: RTCPeerConnectionState) => void,
    *   onRemoteStream?: (id: string, stream: MediaStream) => void,
+   *   onRemoteVideo?: (id: string, track: MediaStreamTrack) => void,
+   *   videoMaxBitrate?: number,
    *   onPeerFailed?: (id: string) => void,
    *   onError?: (id: string, error: unknown) => void,
    * }} options
    */
-  constructor({ signaling, localStream, iceServers, onPeerState, onRemoteStream, onPeerFailed, onError }) {
+  constructor({ signaling, localStream, iceServers, onPeerState, onRemoteStream, onRemoteVideo, onPeerFailed, onError, videoMaxBitrate }) {
     this.signaling = signaling;
     this.localStream = localStream;
     this.iceServers = iceServers;
+    this.videoMaxBitrate = videoMaxBitrate ?? 0;
+
+    /** Track de vídeo que estamos transmitindo (ou null). @type {MediaStreamTrack | null} */
+    this.videoTrack = null;
     this.events = {
       onPeerState: onPeerState ?? (() => {}),
       onRemoteStream: onRemoteStream ?? (() => {}),
+      onRemoteVideo: onRemoteVideo ?? (() => {}),
       onPeerFailed: onPeerFailed ?? (() => {}),
       onError: onError ?? ((id, err) => console.error(`[mesh] ${id}`, err)),
     };
@@ -67,6 +78,7 @@ export class MeshVoiceSession {
       const answer = await peer.pc.createAnswer();
       await peer.pc.setLocalDescription(answer);
       await this.signaling.sendAnswer(fromId, peer.pc.localDescription);
+      await this.#applyVideo(peer); // depois da negociação os encodings existem (para o bitrate)
     });
   }
 
@@ -79,6 +91,7 @@ export class MeshVoiceSession {
       }
       await peer.pc.setRemoteDescription(answer);
       await this.#flushCandidates(peer);
+      await this.#applyVideo(peer);
     });
   }
 
@@ -102,6 +115,15 @@ export class MeshVoiceSession {
 
       await peer.pc.addIceCandidate(candidate);
     });
+  }
+
+  /**
+   * Começa (track) ou para (null) de transmitir vídeo em todas as conexões, sem renegociar.
+   * Conexões criadas depois recebem o mesmo track.
+   */
+  async setVideoTrack(track) {
+    this.videoTrack = track;
+    await Promise.all([...this.peers.values()].map((peer) => this.#guard(peer.id, () => this.#applyVideo(peer))));
   }
 
   removePeer(id) {
@@ -148,6 +170,7 @@ export class MeshVoiceSession {
       pc,
       initiator,
       tracksAdded: false,
+      videoSender: null,
       iceRestarted: false,
       pendingCandidates: this.earlyCandidates.get(id) ?? [],
     };
@@ -163,6 +186,11 @@ export class MeshVoiceSession {
     };
 
     pc.ontrack = (event) => {
+      if (event.track.kind === 'video') {
+        // Fica "mudo" (sem frames) até o outro lado chamar replaceTrack com um track de verdade.
+        this.events.onRemoteVideo(id, event.track);
+        return;
+      }
       const stream = event.streams[0] ?? new MediaStream([event.track]);
       this.events.onRemoteStream(id, stream);
     };
@@ -193,7 +221,47 @@ export class MeshVoiceSession {
     for (const track of this.localStream.getAudioTracks()) {
       peer.pc.addTrack(track, this.localStream);
     }
+
+    if (peer.initiator) {
+      // Vem depois do áudio: a offer fica com m-line de áudio e depois a de vídeo.
+      peer.videoSender = peer.pc.addTransceiver('video', { direction: 'sendrecv' }).sender;
+    } else {
+      // Quem responde reaproveita o transceiver que a offer criou. Ele nasce 'recvonly';
+      // passamos para 'sendrecv' antes do createAnswer para também poder transmitir.
+      const transceiver = peer.pc.getTransceivers()
+        .find((t) => t.receiver.track?.kind === 'video' && !t.stopped);
+      if (transceiver) {
+        transceiver.direction = 'sendrecv';
+        peer.videoSender = transceiver.sender;
+      } else {
+        console.warn(`[mesh] offer de ${peer.id} sem vídeo; transmissão indisponível com esse peer`);
+      }
+    }
+
+    // O track de vídeo atual (se estamos transmitindo) é aplicado por #applyVideo assim que a
+    // negociação termina (handleOffer/handleAnswer), então quem chega recebe o vídeo desde o início.
     peer.tracksAdded = true;
+  }
+
+  /** Aplica o track de vídeo atual (ou null) ao sender e, se der, limita o bitrate. */
+  async #applyVideo(peer) {
+    const sender = peer.videoSender;
+    if (!sender || peer.pc.connectionState === 'closed') return;
+
+    if (sender.track !== this.videoTrack) {
+      await sender.replaceTrack(this.videoTrack);
+    }
+
+    if (!this.videoTrack || !this.videoMaxBitrate) return;
+    try {
+      const params = sender.getParameters();
+      // Antes da negociação terminar os encodings podem estar vazios; tentamos de novo depois.
+      if (!params.encodings?.length || params.encodings[0].maxBitrate === this.videoMaxBitrate) return;
+      params.encodings[0].maxBitrate = this.videoMaxBitrate;
+      await sender.setParameters(params);
+    } catch (err) {
+      console.warn(`[mesh] não foi possível limitar o bitrate para ${peer.id}`, err);
+    }
   }
 
   async #flushCandidates(peer) {
@@ -223,6 +291,7 @@ export class MeshVoiceSession {
  *   pc: RTCPeerConnection,
  *   initiator: boolean,
  *   tracksAdded: boolean,
+ *   videoSender: RTCRtpSender | null,
  *   iceRestarted: boolean,
  *   pendingCandidates: RTCIceCandidateInit[],
  * }} Peer

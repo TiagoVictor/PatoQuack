@@ -46,7 +46,10 @@ public sealed class InMemoryRoomRegistry : IRoomRegistry
                     .ToList();
 
                 room.Members.Add(participant.ConnectionId);
-                return Task.FromResult(new JoinResult(JoinStatus.Joined, existing));
+                var streamer = room.StreamerConnectionId is { } streamerId
+                    ? existing.FirstOrDefault(p => p.ConnectionId == streamerId)
+                    : null;
+                return Task.FromResult(new JoinResult(JoinStatus.Joined, existing, streamer));
             }
         }
     }
@@ -63,6 +66,11 @@ public sealed class InMemoryRoomRegistry : IRoomRegistry
             lock (room)
             {
                 room.Members.Remove(connectionId);
+                if (room.StreamerConnectionId == connectionId)
+                {
+                    room.StreamerConnectionId = null;
+                }
+
                 if (room.Members.Count == 0)
                 {
                     room.Closed = true;
@@ -91,9 +99,59 @@ public sealed class InMemoryRoomRegistry : IRoomRegistry
         return Task.FromResult<Participant?>(null);
     }
 
+    public Task<StreamStartResult> TryStartStreamAsync(string connectionId)
+    {
+        if (!_byConnection.TryGetValue(connectionId, out var self)
+            || !_rooms.TryGetValue(self.Room, out var room))
+        {
+            return Task.FromResult(new StreamStartResult(StreamStartStatus.NotInRoom, null));
+        }
+
+        lock (room)
+        {
+            if (room.Closed || !room.Members.Contains(connectionId))
+            {
+                return Task.FromResult(new StreamStartResult(StreamStartStatus.NotInRoom, null));
+            }
+
+            if (room.StreamerConnectionId is { } current)
+            {
+                var streamer = _byConnection.TryGetValue(current, out var p) ? p : null;
+                return Task.FromResult(new StreamStartResult(StreamStartStatus.AlreadyStreaming, self, streamer));
+            }
+
+            room.StreamerConnectionId = connectionId;
+            return Task.FromResult(new StreamStartResult(StreamStartStatus.Started, self));
+        }
+    }
+
+    public Task<Participant?> StopStreamAsync(string connectionId)
+    {
+        if (!_byConnection.TryGetValue(connectionId, out var self)
+            || !_rooms.TryGetValue(self.Room, out var room))
+        {
+            return Task.FromResult<Participant?>(null);
+        }
+
+        lock (room)
+        {
+            if (room.StreamerConnectionId != connectionId)
+            {
+                return Task.FromResult<Participant?>(null);
+            }
+
+            room.StreamerConnectionId = null;
+            return Task.FromResult<Participant?>(self);
+        }
+    }
+
     private sealed class RoomState
     {
         public HashSet<string> Members { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>Conexão que transmite vídeo na sala (no máximo uma), ou null.</summary>
+        public string? StreamerConnectionId { get; set; }
+
         public bool Closed { get; set; }
     }
 }

@@ -124,6 +124,27 @@ Regras importantes:
 - **Falha de conexão.** Se uma peer connection vai para `failed`, quem iniciou tenta um ICE restart
   uma vez. Se falhar de novo, a UI avisa que provavelmente falta um servidor TURN.
 
+## Transmissão de vídeo (tela ou câmera)
+
+Uma pessoa por sala pode transmitir a tela ou a câmera (estilo "Go Live"); os demais assistem e a
+voz continua normal para todos.
+
+- **Servidor.** O `RoomRegistry` guarda quem transmite em cada sala (no máximo 1, checado sob o lock
+  da sala). `StartStream()` lança `HubException` se alguém já transmite; senão avisa a sala com
+  `StreamStarted(connId, nome)`. `StopStream()` avisa com `StreamStopped(connId)`. Sair ou cair
+  encerra a transmissão automaticamente. `JoinRoom` retorna `{ participants, streamer }`.
+- **Cliente.** Toda `RTCPeerConnection` nasce com um transceiver de vídeo vazio em `sendrecv`
+  (quem responde muda o transceiver criado pela offer para `sendrecv`). Transmitir é só
+  `sender.replaceTrack(track)` em todas as conexões, sem renegociar; parar é `replaceTrack(null)`.
+  Quem transmite aplica o track atual em toda conexão nova, então quem entra no meio já recebe o
+  vídeo. Fechar o compartilhamento pela barra do navegador (`track.onended`) também encerra.
+- **Bitrate.** Limitado a 2,5 Mbps por conexão (`VIDEO_MAX_BITRATE` em `js/config.js`). Em malha,
+  quem transmite envia uma cópia para cada pessoa: com 5 assistindo, até ~12,5 Mbps de upload.
+
+Roteiro manual: três abas na mesma sala, uma clica em **Transmitir tela** e as outras duas veem o
+vídeo. Uma quarta aba entra no meio e também vê. Feche a aba de quem transmite: o player some
+para os outros.
+
 ## Limitações conhecidas
 
 - **Malha P2P escala mal.** Cada pessoa envia o próprio áudio para todas as outras: com N
