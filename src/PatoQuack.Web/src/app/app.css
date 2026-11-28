@@ -1,0 +1,11 @@
+.app {
+  max-width: 1040px; margin: 0 auto; padding: 32px 16px;
+  display: grid; gap: var(--pq-space-4);
+}
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: var(--pq-space-3); flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: var(--pq-space-2); }
+.brand h1 { margin: 0; font-size: 1.6rem; }
+.home-link { color: inherit; text-decoration: none; }
+.brand pq-badge { text-transform: uppercase; letter-spacing: .08em; }
+.account { display: flex; align-items: center; gap: var(--pq-space-2); min-width: 0; }
+.who { display: grid; min-width: 0; max-width: 180px; }

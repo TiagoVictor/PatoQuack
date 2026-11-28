@@ -1,0 +1,75 @@
+<div class="bar" role="toolbar" aria-label="Controles da chamada">
+  <div class="group">
+    <div class="split">
+      <button type="button" class="bar-btn" [class.danger-on]="voice.muted()" [attr.aria-pressed]="voice.muted()"
+              [attr.aria-label]="micLabel()" [title]="micLabel()" (click)="voice.toggleMuteAsync()">
+        <pq-icon [name]="voice.muted() ? 'mic-off' : 'mic'" />
+      </button>
+      <pq-menu [(open)]="micMenu" placement="top" align="start" wide label="Opções de voz">
+        <button pqMenuTrigger type="button" class="caret" aria-label="Opções de voz" title="Opções de voz"
+                [attr.aria-expanded]="micMenu()" (click)="micMenu.set(!micMenu())">
+          <pq-icon name="chevron" />
+        </button>
+        <pq-mic-menu />
+      </pq-menu>
+    </div>
+
+    <div class="split">
+      <button type="button" class="bar-btn" [class.on]="voice.localVideoKind() === 'camera'"
+              [attr.aria-pressed]="voice.localVideoKind() === 'camera'" [disabled]="streamDisabled('camera')"
+              [attr.aria-label]="streamTitle('camera')" [title]="streamTitle('camera')" (click)="voice.toggleStreamAsync('camera')">
+        <pq-icon name="camera" />
+      </button>
+      <pq-menu [(open)]="cameraMenu" placement="top" align="center" wide label="Opções da câmera">
+        <button pqMenuTrigger type="button" class="caret" aria-label="Opções da câmera" title="Opções da câmera"
+                [attr.aria-expanded]="cameraMenu()" (click)="cameraMenu.set(!cameraMenu())">
+          <pq-icon name="chevron" />
+        </button>
+        <pq-video-menu kind="camera" />
+      </pq-menu>
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="split">
+      <button type="button" class="bar-btn" [class.on]="voice.localVideoKind() === 'screen'"
+              [attr.aria-pressed]="voice.localVideoKind() === 'screen'" [disabled]="streamDisabled('screen')"
+              [attr.aria-label]="streamTitle('screen')" [title]="streamTitle('screen')" (click)="voice.toggleStreamAsync('screen')">
+        <pq-icon name="screen" />
+      </button>
+      <pq-menu [(open)]="screenMenu" placement="top" align="center" wide label="Opções da transmissão de tela">
+        <button pqMenuTrigger type="button" class="caret" aria-label="Opções da transmissão de tela" title="Opções da transmissão"
+                [attr.aria-expanded]="screenMenu()" (click)="screenMenu.set(!screenMenu())">
+          <pq-icon name="chevron" />
+        </button>
+        <pq-video-menu kind="screen" />
+      </pq-menu>
+    </div>
+
+    <button type="button" class="bar-btn chat-btn" [class.on]="chatOpen()" [attr.aria-pressed]="chatOpen()"
+            aria-label="Chat" [title]="chatOpen() ? 'Fechar chat' : 'Abrir chat'" (click)="toggleChat.emit()">
+      <pq-icon name="chat" />
+      @if (chat.unread() > 0) {
+        <span class="unread" [attr.aria-label]="chat.unread() + ' não lidas'">{{ chat.unread() > 99 ? '99+' : chat.unread() }}</span>
+      }
+    </button>
+
+    <pq-menu [(open)]="moreMenu" placement="top" align="end" label="Mais opções">
+      <button pqMenuTrigger type="button" class="bar-btn" aria-label="Mais opções" title="Mais opções"
+              [attr.aria-expanded]="moreMenu()" (click)="moreMenu.set(!moreMenu())">
+        <pq-icon name="more" />
+      </button>
+      <pq-switch label="Exibição em grade" [checked]="options().grid" (checkedChange)="optionsChange.emit({ grid: $event })" />
+      <pq-switch label="Mostrar participantes sem vídeo" [checked]="options().showNonVideo"
+                 (checkedChange)="optionsChange.emit({ showNonVideo: $event })" />
+      <pq-switch label="Assistir transmissões automaticamente" [checked]="voice.autoWatch()" (checkedChange)="voice.setAutoWatch($event)" />
+      <pq-switch label="Som de mensagens" [checked]="chat.sound()" (checkedChange)="chat.setSound($event)" />
+      <pq-menu-separator />
+      <pq-switch label="Estatísticas da transmissão" [checked]="options().stats" (checkedChange)="optionsChange.emit({ stats: $event })" />
+    </pq-menu>
+  </div>
+
+  <button type="button" class="hangup" aria-label="Sair do canal" title="Sair do canal" (click)="voice.leaveAsync()">
+    <pq-icon name="hangup" />
+  </button>
+</div>

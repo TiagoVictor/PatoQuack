@@ -1,0 +1,52 @@
+<pq-dialog [open]="open()" [heading]="'Convidar para ' + serverName()" (closed)="closed.emit()">
+  <div class="options">
+    <pq-select label="Vale por" [options]="dayOptions" [value]="days()" (valueChange)="days.set($event)" />
+    <pq-select label="Usos" [options]="useOptions" [value]="uses()" (valueChange)="uses.set($event)" />
+  </div>
+  <button pqButton type="button" variant="primary" block [loading]="busy()" (click)="generateAsync()">Gerar link</button>
+
+  @if (created(); as invite) {
+    <div class="result">
+      <input class="pq-input" readonly [value]="link(invite.code)" aria-label="Link do convite" (focus)="$any($event.target).select()" />
+      <button pqButton type="button" size="sm" (click)="copyAsync(invite.code)">{{ copied() === invite.code ? 'Copiado!' : 'Copiar' }}</button>
+    </div>
+    <pq-label tone="muted" size="xs">
+      {{ copied() === invite.code ? 'Link copiado.' : 'Copie o link e mande para quem você quer convidar.' }}
+      Quem não tem conta cria uma pelo próprio link.
+    </pq-label>
+  }
+
+  @if (error()) {
+    <pq-label tone="danger" size="sm" role="alert">{{ error() }}</pq-label>
+  }
+
+  <div class="active">
+    <pq-label tone="muted" size="xs" strong class="section-title">Convites ativos</pq-label>
+    @if (invites(); as list) {
+      <ul>
+        @for (invite of list; track invite.code) {
+          <li>
+            <div class="info">
+              <code>{{ invite.code }}</code>
+              <span class="meta">{{ usesText(invite) }} · {{ expiresText(invite) }}</span>
+            </div>
+            @if (!invite.expiresAt && invite.maxUses === null) {
+              <pq-badge>permanente</pq-badge>
+            }
+            <button pqButton type="button" size="sm" (click)="copyAsync(invite.code)">{{ copied() === invite.code ? 'Copiado!' : 'Copiar' }}</button>
+            <button pqButton type="button" size="sm" variant="danger" [attr.aria-label]="'Revogar o convite ' + invite.code"
+                    (click)="revokeAsync(invite.code)">Revogar</button>
+          </li>
+        } @empty {
+          <li class="empty">Nenhum convite ativo. Gere um link acima.</li>
+        }
+      </ul>
+    } @else {
+      <pq-label tone="muted" size="sm">Carregando…</pq-label>
+    }
+  </div>
+
+  <div pqDialogActions>
+    <button pqButton type="button" (click)="closed.emit()">Fechar</button>
+  </div>
+</pq-dialog>

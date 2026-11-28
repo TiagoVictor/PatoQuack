@@ -1,0 +1,21 @@
+<main class="app">
+  <header class="topbar">
+    <div class="brand">
+      <a routerLink="/" class="home-link"><h1>PatoQuack</h1></a>
+      <pq-badge tone="accent">voz</pq-badge>
+    </div>
+
+    @if (auth.user(); as user) {
+      <div class="account">
+        <pq-avatar [name]="user.name" size="sm" />
+        <div class="who">
+          <pq-label size="sm" strong truncate>{{ user.name }}</pq-label>
+          <pq-label size="xs" tone="muted" truncate>&#64;{{ user.username }}</pq-label>
+        </div>
+        <button pqButton type="button" size="sm" (click)="logoutAsync()">Sair</button>
+      </div>
+    }
+  </header>
+
+  <router-outlet />
+</main>

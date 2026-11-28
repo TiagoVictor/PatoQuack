@@ -1,0 +1,59 @@
+<header class="head">
+  <pq-icon name="chat" />
+  <h2>Chat</h2>
+  <button type="button" class="icon-btn" aria-label="Fechar chat" title="Fechar chat" (click)="closed.emit()">
+    <pq-icon name="close" />
+  </button>
+</header>
+
+<div class="scroll" #scroller (scroll)="onScroll()">
+  @if (chat.hasMore()) {
+    <button type="button" class="more" [disabled]="chat.loading()" (click)="loadOlder()">
+      {{ chat.loading() ? 'Carregando…' : 'Carregar mensagens anteriores' }}
+    </button>
+  } @else if (!chat.loading()) {
+    <p class="start">Começo da conversa em <strong>#{{ channelName() }}</strong>.</p>
+  }
+
+  <ol class="list" role="log" aria-label="Mensagens">
+    @for (row of rows(); track row.item.key) {
+      @if (row.day) {
+        <li class="day" role="separator">{{ row.day }}</li>
+      }
+      @if (row.item.kind === 'system') {
+        <li class="system">{{ row.item.text }} <time [attr.datetime]="row.item.sentAt.toISOString()">{{ row.time }}</time></li>
+      } @else {
+        <li class="msg" [class.grouped]="row.grouped" [class.mine]="row.item.mine">
+          @if (!row.grouped) {
+            <pq-avatar [name]="row.item.author" size="sm" />
+            <div class="msg-head">
+              <strong>{{ row.item.author }}</strong>
+              <time [attr.datetime]="row.item.sentAt.toISOString()" [title]="row.title">{{ row.time }}</time>
+            </div>
+          } @else {
+            <time class="hover-time" [attr.datetime]="row.item.sentAt.toISOString()" [title]="row.title">{{ row.time }}</time>
+          }
+          <p class="text">@for (part of row.parts; track $index) {@if (part.kind === 'link') {<a [href]="part.href" target="_blank" rel="noopener noreferrer nofollow">{{ part.text }}</a>} @else {{{ part.text }}}}</p>
+        </li>
+      }
+    }
+  </ol>
+</div>
+
+@if (newBelow()) {
+  <button type="button" class="new-below" (click)="scrollToBottom()">Novas mensagens ↓</button>
+}
+
+<p class="typing" aria-live="polite">{{ chat.typingText() }}</p>
+
+<form class="compose" (submit)="$event.preventDefault(); sendAsync()">
+  <textarea #input rows="1" [attr.maxlength]="maxLength" aria-label="Mensagem" [placeholder]="'Conversar em #' + channelName()"
+            (input)="onInput($event)" (keydown)="onKeydown($event)"></textarea>
+  <button type="submit" class="icon-btn send" aria-label="Enviar mensagem" title="Enviar (Enter)" [disabled]="!draft().trim()">
+    <pq-icon name="send" />
+  </button>
+</form>
+
+@if (chat.error()) {
+  <p class="error" role="alert">{{ chat.error() }}</p>
+}

@@ -1,0 +1,6 @@
+:host { display: grid; justify-items: center; }
+pq-card { width: min(420px, 100%); }
+form { display: grid; gap: 14px; }
+.title { margin: 0; font-size: 1.2rem; }
+.switch { text-align: center; }
+.switch a { color: var(--pq-accent); }

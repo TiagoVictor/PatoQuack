@@ -4,8 +4,25 @@
     {
       "name": "server",
       "runtimeExecutable": "dotnet",
-      "runtimeArgs": ["run", "--project", "src/PatoQuack.Server", "--launch-profile", "http"],
-      "port": 5003
+      "runtimeArgs": [
+        "run",
+        "--project",
+        "src/PatoQuack.Server",
+        "--launch-profile",
+        "http"
+      ],
+      "port": 5003,
+      "autoPort": false
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "src/PatoQuack.Web",
+        "start"
+      ],
+      "port": 4200
     }
   ]
 }

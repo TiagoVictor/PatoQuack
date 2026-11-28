@@ -1,0 +1,28 @@
+:host { display: flex; justify-content: center; }
+.bar {
+  display: flex; align-items: center; gap: var(--pq-space-3); flex-wrap: wrap; justify-content: center;
+  padding: var(--pq-space-2); border-radius: 14px; background: var(--pq-surface-3, #111214);
+}
+.group { display: flex; align-items: center; gap: var(--pq-space-2); }
+.split { display: inline-flex; border-radius: 10px; background: var(--pq-surface-2); }
+
+.bar-btn, .caret, .hangup {
+  position: relative; display: inline-grid; place-items: center; border: 0; cursor: pointer; color: var(--pq-text);
+  font: inherit; background: var(--pq-surface-2); --pq-icon-size: 20px;
+}
+.bar-btn { width: 44px; height: 40px; border-radius: 10px; }
+.split .bar-btn { border-radius: 10px 0 0 10px; }
+.caret { width: 26px; height: 40px; border-radius: 0 10px 10px 0; --pq-icon-size: 16px; color: var(--pq-text-muted); }
+.bar-btn:hover, .caret:hover { filter: brightness(1.25); }
+.bar-btn:focus-visible, .caret:focus-visible, .hangup:focus-visible { outline: 2px solid var(--pq-accent); outline-offset: 2px; }
+.bar-btn:disabled { opacity: .45; cursor: not-allowed; filter: none; }
+.bar-btn.on { background: var(--pq-success); }
+.bar-btn.danger-on { background: var(--pq-danger); }
+
+.hangup { width: 56px; height: 40px; border-radius: 10px; background: var(--pq-danger); --pq-icon-size: 24px; }
+.hangup:hover { filter: brightness(1.15); }
+
+.unread {
+  position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
+  display: grid; place-items: center; font-size: .65rem; font-weight: 700; background: var(--pq-danger);
+}

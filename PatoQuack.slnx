@@ -1,5 +1,8 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/PatoQuack.Application/PatoQuack.Application.csproj" />
+    <Project Path="src/PatoQuack.Domain/PatoQuack.Domain.csproj" />
+    <Project Path="src/PatoQuack.Infrastructure/PatoQuack.Infrastructure.csproj" />
     <Project Path="src/PatoQuack.Server/PatoQuack.Server.csproj" />
   </Folder>
   <Folder Name="/tests/">

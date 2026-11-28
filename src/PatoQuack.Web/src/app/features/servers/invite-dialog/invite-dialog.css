@@ -1,0 +1,11 @@
+.options { display: grid; grid-template-columns: 1fr 1fr; gap: var(--pq-space-2); }
+.result { display: flex; gap: var(--pq-space-2); }
+.result input { font-size: .85rem; padding: 6px 10px; }
+.active { display: grid; gap: var(--pq-space-2); }
+.section-title { text-transform: uppercase; letter-spacing: .06em; }
+ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--pq-space-2); max-height: 240px; overflow: auto; }
+li { display: flex; align-items: center; gap: var(--pq-space-2); padding: 6px 8px; border-radius: var(--pq-radius-sm); background: var(--pq-surface-2); color: var(--pq-text); }
+.info { flex: 1; display: grid; min-width: 0; }
+code { font-family: var(--pq-font-mono); font-size: .85rem; letter-spacing: .04em; }
+.meta { font-size: .72rem; color: var(--pq-text-muted); }
+.empty { justify-content: center; color: var(--pq-text-muted); font-size: .85rem; background: transparent; }

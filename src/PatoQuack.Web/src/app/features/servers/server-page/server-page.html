@@ -1,0 +1,130 @@
+@if (store.server(); as server) {
+  <header class="server-header">
+    <div class="title-row">
+      <h2 class="server-name">{{ server.name }}</h2>
+      @if (server.isOwner) {
+        <pq-badge tone="accent">dono</pq-badge>
+      }
+    </div>
+    <div class="header-actions">
+      @if (store.can('manageInvites')) {
+        <button pqButton type="button" size="sm" variant="primary" (click)="openDialog({ kind: 'invite' })">Convidar pessoas</button>
+      }
+      @if (store.can('viewMembers')) {
+        <button pqButton type="button" size="sm" (click)="openMembersAsync()">Membros</button>
+      }
+      @if (!server.isOwner) {
+        <button pqButton type="button" size="sm" variant="danger" (click)="openDialog({ kind: 'leave-server' })">Sair do servidor</button>
+      }
+      @if (store.can('manageServer')) {
+        <button pqButton type="button" size="sm" (click)="openDialog({ kind: 'rename-server' })">Renomear</button>
+      }
+      @if (store.can('deleteServer')) {
+        <button pqButton type="button" size="sm" variant="danger" (click)="openDialog({ kind: 'delete-server' })">Excluir servidor</button>
+      }
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside>
+      <pq-card>
+        <div pqCardHeader>
+          <pq-label tone="muted" size="xs" strong class="section-title">Canais de voz</pq-label>
+        </div>
+
+        <pq-grid [items]="store.channels()" [trackBy]="byId" minItemWidth="100%" gap="var(--pq-space-1)"
+                 [emptyText]="store.can('manageChannels') ? 'Nenhum canal ainda. Crie o primeiro abaixo.' : 'Nenhum canal ainda.'"
+                 aria-label="Canais de voz">
+          <ng-template pqGridItem [pqGridItemOf]="store.channels()" let-channel>
+            <div class="channel-row">
+              <a pqButton block align="start" [routerLink]="['c', channel.id]"
+                 routerLinkActive #active="routerLinkActive" [variant]="active.isActive ? 'primary' : 'secondary'"
+                 [attr.aria-current]="active.isActive ? 'page' : null">
+                <span class="hash" aria-hidden="true">#</span>
+                <pq-label truncate>{{ channel.name }}</pq-label>
+              </a>
+              @if (store.can('manageChannels')) {
+                <button pqButton type="button" size="sm" class="icon" [attr.aria-label]="'Renomear ' + channel.name"
+                        title="Renomear" (click)="openDialog({ kind: 'rename-channel', channel })">✎</button>
+                <button pqButton type="button" size="sm" class="icon" [attr.aria-label]="'Excluir ' + channel.name"
+                        title="Excluir" (click)="openDialog({ kind: 'delete-channel', channel })">✕</button>
+              }
+            </div>
+          </ng-template>
+        </pq-grid>
+
+        @if (store.can('manageChannels')) {
+          <form class="new-channel" [formGroup]="newChannelForm" (ngSubmit)="createChannelAsync()">
+            <label class="visually-hidden" for="new-channel">Nome do novo canal</label>
+            <input pqInput id="new-channel" formControlName="name" maxlength="32" placeholder="Novo canal" />
+            <button pqButton type="submit" size="sm" [loading]="creatingChannel()">Criar</button>
+          </form>
+          @if (channelError()) {
+            <pq-label tone="danger" size="xs" role="alert">{{ channelError() }}</pq-label>
+          }
+        }
+      </pq-card>
+    </aside>
+
+    <section class="content">
+      <router-outlet />
+    </section>
+  </div>
+
+  <pq-invite-dialog [open]="dialog()?.kind === 'invite'" [serverId]="server.id" [serverName]="server.name"
+                    (closed)="closeDialog()" />
+
+  <pq-dialog [open]="dialog()?.kind === 'members'" heading="Membros" (closed)="closeDialog()">
+    @if (members(); as list) {
+      <ul class="members">
+        @for (member of list; track member.userId) {
+          <li>
+            <pq-avatar [name]="member.name" size="sm" />
+            <span class="member-name">{{ member.name }} <small>&#64;{{ member.username }}</small></span>
+            @if (member.isOwner) {
+              <pq-badge tone="accent">dono</pq-badge>
+            }
+          </li>
+        }
+      </ul>
+    } @else if (dialogError()) {
+      <pq-label tone="danger" size="sm">{{ dialogError() }}</pq-label>
+    } @else {
+      <pq-label tone="muted" size="sm">Carregando…</pq-label>
+    }
+    <div pqDialogActions>
+      <button pqButton type="button" (click)="closeDialog()">Fechar</button>
+    </div>
+  </pq-dialog>
+
+  <pq-confirm-dialog [open]="dialog()?.kind === 'leave-server'" heading="Sair do servidor?"
+                     [message]="'Você deixa de ver os canais de ' + server.name + ' e sai da chamada, se estiver nela. Para voltar, precisa de um convite.'"
+                     confirmLabel="Sair do servidor" danger [busy]="dialogBusy()" [error]="dialogError()"
+                     (confirmed)="leaveServerAsync()" (cancelled)="closeDialog()" />
+
+  <pq-prompt-dialog [open]="dialog()?.kind === 'rename-server'" heading="Renomear servidor" label="Nome do servidor"
+                    [value]="server.name" [busy]="dialogBusy()" [error]="dialogError()"
+                    (submitted)="renameServerAsync($event)" (cancelled)="closeDialog()" />
+
+  <pq-confirm-dialog [open]="dialog()?.kind === 'delete-server'" heading="Excluir servidor?"
+                     [message]="'O servidor ' + server.name + ', os canais e os membros serão removidos. Não dá para desfazer.'"
+                     confirmLabel="Excluir servidor" danger [busy]="dialogBusy()" [error]="dialogError()"
+                     (confirmed)="deleteServerAsync()" (cancelled)="closeDialog()" />
+
+  <pq-prompt-dialog [open]="dialog()?.kind === 'rename-channel'" heading="Renomear canal" label="Nome do canal"
+                    [value]="dialogChannel()?.name ?? ''" [busy]="dialogBusy()" [error]="dialogError()"
+                    (submitted)="renameChannelAsync($event)" (cancelled)="closeDialog()" />
+
+  <pq-confirm-dialog [open]="dialog()?.kind === 'delete-channel'" heading="Excluir canal?"
+                     [message]="'O canal #' + (dialogChannel()?.name ?? '') + ' será removido e quem estiver nele sai da voz.'"
+                     confirmLabel="Excluir canal" danger [busy]="dialogBusy()" [error]="dialogError()"
+                     (confirmed)="deleteChannelAsync()" (cancelled)="closeDialog()" />
+} @else if (store.error()) {
+  <pq-card>
+    <div pqCardHeader><h2 class="server-name">Não foi possível abrir o servidor</h2></div>
+    <pq-label tone="danger">{{ store.error() }}</pq-label>
+    <a pqButton routerLink="/">Voltar ao início</a>
+  </pq-card>
+} @else {
+  <pq-label tone="muted">Carregando servidor…</pq-label>
+}

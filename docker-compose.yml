@@ -1,0 +1,21 @@
+# Postgres local para desenvolvimento: docker compose up -d
+services:
+  postgres:
+    image: postgres:17.6
+    container_name: patoquack-postgres
+    environment:
+      POSTGRES_DB: patoquack
+      POSTGRES_USER: patoquack
+      POSTGRES_PASSWORD: patoquack
+    ports:
+      - "5432:5432"
+    volumes:
+      - patoquack-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U patoquack -d patoquack"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  patoquack-pgdata:

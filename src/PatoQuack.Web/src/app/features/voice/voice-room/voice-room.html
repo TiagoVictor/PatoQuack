@@ -1,0 +1,69 @@
+<header class="head">
+  <pq-icon name="volume" class="muted-icon" />
+  <h2 class="title">{{ store.channel()?.name }}</h2>
+  <span class="timer" title="Tempo na chamada">{{ elapsed() }}</span>
+
+  @if (streamTitle(); as title) {
+    <span class="sep" aria-hidden="true">•</span>
+    <span class="stream-title">
+      <pq-avatar [name]="store.streamer()!.name" size="sm" />
+      <span class="truncate">{{ title }}</span>
+    </span>
+    <span class="badge">
+      @if (qualityLabel() && (store.isLocalStreamer() || store.watching())) {
+        <span class="quality" title="Resolução e quadros por segundo exibidos">{{ qualityLabel() }}</span>
+      }
+      <span class="live">AO VIVO</span>
+    </span>
+    @if (store.isLocalStreamer()) {
+      <span class="viewers">{{ viewersText() }}</span>
+    }
+    @if (store.watching()) {
+      <button type="button" class="head-btn" (click)="stopWatchingAsync()">Parar de assistir</button>
+    }
+  }
+
+  <span class="spacer"></span>
+  @if (canPip && store.streamer()) {
+    <button type="button" class="icon-btn" aria-label="Abrir transmissão em janela flutuante" title="Janela flutuante"
+            [disabled]="!store.isLocalStreamer() && !store.watching()" (click)="togglePipAsync()">
+      <pq-icon name="pip" />
+    </button>
+  }
+  @if (canFullscreen) {
+    <button type="button" class="icon-btn" [attr.aria-pressed]="fullscreen()"
+            [attr.aria-label]="fullscreen() ? 'Sair da tela cheia' : 'Tela cheia'" [title]="fullscreen() ? 'Sair da tela cheia' : 'Tela cheia'"
+            (click)="toggleFullscreenAsync()">
+      <pq-icon [name]="fullscreen() ? 'fullscreen-exit' : 'fullscreen'" />
+    </button>
+  }
+</header>
+
+<div class="body" [class.with-chat]="chatOpen()">
+  <pq-stage [participants]="store.participants()" [streamer]="store.streamer()"
+            [streamerParticipantId]="store.streamerParticipantId()" [streamSource]="store.streamSource()"
+            [isLocalStreamer]="store.isLocalStreamer()" [watching]="store.watching()" [showNonVideo]="showNonVideo()"
+            [focus]="focus()" [compact]="chatOpen()" [narrow]="narrow()"
+            (tileClick)="onTileClick($event)" (quality)="qualityLabel.set($event)" />
+  @if (chatOpen()) {
+    <pq-chat-panel [channelName]="store.channel()?.name ?? ''" (closed)="chatOpen.set(false)" />
+  }
+</div>
+
+@if (statsOpen()) {
+  <pq-stats-panel (closed)="statsOpen.set(false)" />
+}
+
+<pq-call-bar [options]="options()" [chatOpen]="chatOpen()" (optionsChange)="onOptionsChange($event)" (toggleChat)="toggleChat()" />
+
+<pq-stream-preview-dialog />
+
+<!-- Áudio dos participantes remotos (o local não é reproduzido). -->
+<div hidden>
+  @for (participant of remoteAudio(); track participant.id) {
+    <audio [pqMediaStream]="participant.audio" autoplay playsinline [volume]="store.outputVolume()"
+           [silenced]="store.deafened()" [sinkId]="store.canPickSpeaker ? store.speakerId() : null"
+           (playBlocked)="store.reportPlaybackBlocked()"
+           (sinkFailed)="store.setStatus('Não foi possível usar essa saída de áudio; usando a padrão.', 'warn')"></audio>
+  }
+</div>

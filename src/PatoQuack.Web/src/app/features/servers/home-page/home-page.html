@@ -1,0 +1,51 @@
+<pq-card>
+  <div pqCardHeader>
+    <h2 class="title">Seus servidores</h2>
+  </div>
+  @if (servers(); as servers) {
+    <pq-grid [items]="servers" [trackBy]="byId" minItemWidth="200px"
+             emptyText="Você ainda não está em nenhum servidor. Crie um ou entre com um convite.">
+      <ng-template pqGridItem [pqGridItemOf]="servers" let-server>
+        <a pqButton block align="start" [routerLink]="['/s', server.id]">
+          <pq-avatar [name]="server.name" size="sm" />
+          <pq-label truncate>{{ server.name }}</pq-label>
+          @if (server.isOwner) {
+            <pq-badge tone="accent">dono</pq-badge>
+          }
+        </a>
+      </ng-template>
+    </pq-grid>
+  } @else if (serversError()) {
+    <pq-label tone="danger">{{ serversError() }}</pq-label>
+  } @else {
+    <pq-label tone="muted">Carregando…</pq-label>
+  }
+</pq-card>
+
+<pq-grid minItemWidth="280px" fill="auto-fit" gap="var(--pq-space-4)">
+  <pq-card>
+    <div pqCardHeader>
+      <h2 class="title">Criar servidor</h2>
+    </div>
+    <form [formGroup]="createForm" (ngSubmit)="createAsync()">
+      <pq-form-field label="Nome do servidor" for="server-name" required [error]="createError()">
+        <input pqInput id="server-name" formControlName="name" maxlength="32" placeholder="Ex.: Amigos do Pato" />
+      </pq-form-field>
+      <pq-label tone="muted" size="sm">Você será o dono. Ele já nasce com o canal de voz <strong>#geral</strong>.</pq-label>
+      <button pqButton type="submit" variant="primary" block [loading]="creating()">Criar servidor</button>
+    </form>
+  </pq-card>
+
+  <pq-card>
+    <div pqCardHeader>
+      <h2 class="title">Entrar com convite</h2>
+    </div>
+    <form [formGroup]="inviteForm" (ngSubmit)="joinAsync()">
+      <pq-form-field label="Código ou link de convite" for="invite" required [error]="inviteError()">
+        <input pqInput id="invite" formControlName="invite" autocomplete="off" placeholder="Ex.: k7m2pq9x" />
+      </pq-form-field>
+      <pq-label tone="muted" size="sm">Peça o convite para o dono do servidor.</pq-label>
+      <button pqButton type="submit" block>Ver convite</button>
+    </form>
+  </pq-card>
+</pq-grid>

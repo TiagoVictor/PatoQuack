@@ -1,0 +1,49 @@
+/* Tokens de design compartilhados por todos os componentes (shared/ui). */
+:root {
+  color-scheme: dark;
+  --pq-bg: #1e1f22;
+  --pq-surface: #2b2d31;
+  --pq-surface-2: #313338;
+  --pq-text: #f2f3f5;
+  --pq-text-muted: #949ba4;
+  --pq-accent: #5865f2;
+  --pq-accent-hover: #4752c4;
+  --pq-success: #23a55a;
+  --pq-warning: #f0b232;
+  --pq-danger: #da373c;
+  --pq-on-warning: #1e1f22;
+  --pq-radius: 10px;
+  --pq-radius-sm: 6px;
+  --pq-space-1: 4px;
+  --pq-space-2: 8px;
+  --pq-space-3: 12px;
+  --pq-space-4: 16px;
+  --pq-space-5: 20px;
+  --pq-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --pq-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--pq-font);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--pq-bg);
+  color: var(--pq-text);
+}
+
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
+}
+
+/* Estilo da diretiva pqInput (global: a diretiva não tem template/CSS próprio). */
+.pq-input {
+  width: 100%;
+  font: inherit; font-size: 1rem; color: var(--pq-text);
+  background: var(--pq-bg); border: 1px solid transparent; border-radius: var(--pq-radius-sm);
+  padding: 10px 12px;
+}
+.pq-input:focus { outline: none; border-color: var(--pq-accent); }
+.pq-input.ng-invalid.ng-touched { border-color: var(--pq-danger); }

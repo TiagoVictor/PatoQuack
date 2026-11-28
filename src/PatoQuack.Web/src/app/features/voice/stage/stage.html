@@ -1,0 +1,61 @@
+<ng-template #tile let-key let-small="small">
+  @if (key === streamKey) {
+    <button type="button" class="tile stream-tile" [class.small]="small" [class.idle]="streamIdle()"
+            [attr.aria-pressed]="focused() === key" [attr.aria-label]="tileLabel(key)"
+            [title]="streamIdle() ? 'Assistir transmissão' : focused() === key ? 'Voltar para a grade' : 'Ampliar'"
+            (click)="tileClick.emit(key)">
+      <video class="stream-video" [pqMediaStream]="streamIdle() ? null : streamSource()" autoplay playsinline muted
+             (pqVideoQuality)="quality.emit($event)"></video>
+      @if (streamIdle()) {
+        <span class="tile-idle"><pq-icon name="screen" />Clique para assistir</span>
+      } @else if (!streamSource()) {
+        <span class="tile-idle">Conectando vídeo…</span>
+      }
+      <span class="tile-live">AO VIVO</span>
+      <span class="tile-label"><span class="tile-name">{{ isLocalStreamer() ? 'Você está transmitindo' : streamer()?.name }}</span></span>
+    </button>
+  } @else if (participant(key); as p) {
+    <button type="button" class="tile person" [class.small]="small" [class.speaking]="p.speaking && !p.muted"
+            [class.muted]="p.muted" [style.--tile-bg]="'hsl(' + hue(p.name) + ' 32% 24%)'"
+            [attr.aria-pressed]="focused() === key" [attr.aria-label]="tileLabel(key)"
+            [title]="focused() === key ? 'Voltar para a grade' : 'Ampliar'" (click)="tileClick.emit(key)">
+      <pq-avatar [name]="p.name" [size]="small ? 'md' : 'lg'" [highlighted]="p.speaking && !p.muted" />
+      @if (connectionLabel(p); as conn) {
+        <span class="tile-conn" [attr.data-state]="p.connection">{{ conn }}</span>
+      }
+      <span class="tile-label">
+        <span class="tile-name">{{ p.isLocal ? p.name + ' (você)' : p.name }}</span>
+        @if (p.muted) {
+          <pq-icon name="mic-off" class="tile-muted" />
+        }
+        @if (streamerParticipantId() === p.id) {
+          <span class="tile-live-inline">AO VIVO</span>
+        }
+      </span>
+    </button>
+  }
+</ng-template>
+
+@if (stripKeys().length) {
+  <div class="strip" role="list" aria-label="Miniaturas">
+    @for (key of stripKeys(); track key) {
+      <div role="listitem" class="strip-item">
+        <ng-container [ngTemplateOutlet]="tile" [ngTemplateOutletContext]="{ $implicit: key, small: true }" />
+      </div>
+    }
+  </div>
+}
+
+@if (!compact()) {
+  <div class="grid" [attr.data-layout]="focused() ? 'focus' : 'grid'"
+       [style.--cols]="shape()[0]" [style.--rows]="shape()[1]">
+    @for (key of mainKeys(); track key) {
+      <ng-container [ngTemplateOutlet]="tile" [ngTemplateOutletContext]="{ $implicit: key, small: false }" />
+    } @empty {
+      <p class="empty">
+        Ninguém está transmitindo vídeo. Para ver os participantes, ligue
+        <strong>Mostrar participantes sem vídeo</strong> em Mais opções (⋯).
+      </p>
+    }
+  </div>
+}
